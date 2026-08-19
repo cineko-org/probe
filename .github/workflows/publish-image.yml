@@ -1,0 +1,87 @@
+name: Publish image
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Validate release secrets
+        env:
+          DEPLOYMENT_REPOSITORY: ${{ secrets.CINEKO_DEPLOYMENT_REPOSITORY }}
+          DEPLOYMENT_TOKEN: ${{ secrets.CINEKO_DEPLOYMENT_TOKEN }}
+          IMAGE: ${{ secrets.CINEKO_IMAGE }}
+          REGISTRY: ${{ secrets.CINEKO_REGISTRY }}
+          REGISTRY_USERNAME: ${{ secrets.CINEKO_REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.CINEKO_REGISTRY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for value in \
+            "$DEPLOYMENT_REPOSITORY" \
+            "$DEPLOYMENT_TOKEN" \
+            "$IMAGE" \
+            "$REGISTRY" \
+            "$REGISTRY_USERNAME" \
+            "$REGISTRY_PASSWORD"; do
+            if [[ -z "$value" ]]; then
+              echo "required Repository Secret is missing" >&2
+              exit 1
+            fi
+          done
+
+      - name: Authenticate to the image registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ secrets.CINEKO_REGISTRY }}
+          username: ${{ secrets.CINEKO_REGISTRY_USERNAME }}
+          password: ${{ secrets.CINEKO_REGISTRY_PASSWORD }}
+
+      - name: Resolve immutable image tag
+        id: image
+        run: echo "tag=sha-${GITHUB_SHA:0:12}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve the bundled browser runtime
+        id: runtime
+        run: echo "playwright_version=$(bash scripts/playwright-version.sh driver)" >> "$GITHUB_OUTPUT"
+
+      - name: Build and publish
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: PLAYWRIGHT_VERSION=${{ steps.runtime.outputs.playwright_version }}
+          tags: ${{ secrets.CINEKO_IMAGE }}:${{ steps.image.outputs.tag }}
+
+      - name: Request immutable deployment
+        env:
+          TARGET: cineko-probe
+          DEPLOYMENT_REPOSITORY: ${{ secrets.CINEKO_DEPLOYMENT_REPOSITORY }}
+          GH_TOKEN: ${{ secrets.CINEKO_DEPLOYMENT_TOKEN }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/${DEPLOYMENT_REPOSITORY}/dispatches" \
+            -f event_type=image-published \
+            -f "client_payload[target]=$TARGET" \
+            -f "client_payload[digest]=$IMAGE_DIGEST" \
+            -f "client_payload[tag]=$IMAGE_TAG" \
+            -f "client_payload[source_repository]=$GITHUB_REPOSITORY" \
+            -f "client_payload[source_sha]=$GITHUB_SHA"
