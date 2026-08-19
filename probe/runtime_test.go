@@ -37,6 +37,27 @@ func TestRuntimeProcessesAssignmentAndDisconnects(t *testing.T) {
 	}
 }
 
+func TestRuntimeReportsPartialAssignment(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	api := &fakeAPI{}
+	runtime := newRuntimeForTest(t, api, &fakeExecutor{captures: []central.Capture{
+		{TargetDate: "2026-08-20", Complete: true, ObservedAt: now},
+		{TargetDate: "2026-08-21", Complete: false, ObservedAt: now},
+	}})
+	assignment := central.ClaimAssignmentResponse{
+		AssignmentID: "assignment_partial", LeaseToken: "lease",
+		LeaseExpiresAt: now.Add(time.Minute), Deadline: now.Add(2 * time.Minute),
+		Task: testAssignmentTask(),
+	}
+	if err := runtime.executeAssignment(context.Background(), Session{}, assignment); err != nil {
+		t.Fatal(err)
+	}
+	if api.committed.Status != "partial" {
+		t.Fatalf("result status = %q", api.committed.Status)
+	}
+}
+
 func TestRuntimeProcessesCatalogAssignmentAndRejectsUnsupportedExecutor(t *testing.T) {
 	t.Parallel()
 	now := time.Now()

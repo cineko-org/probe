@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/cineko-org/probe/v2/internal/adapters/cgv"
 	"github.com/cineko-org/probe/v2/internal/adapters/egress"
+	"github.com/cineko-org/probe/v2/internal/telemetry"
 	"github.com/cineko-org/probe/v2/probe"
 )
 
@@ -55,7 +55,12 @@ func run() error {
 	if err := preflightEgress(ctx); err != nil {
 		return err
 	}
-	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	telemetrySetup, err := telemetry.New(ctx, "cineko-probe", os.Stderr)
+	if err != nil {
+		return fmt.Errorf("initialize telemetry: %w", err)
+	}
+	logger := telemetrySetup.Logger
+	defer shutdownTelemetry(telemetrySetup.Shutdown)
 	runtime, err := probe.NewBrowserRuntime(probe.BrowserRuntimeConfig{
 		CentralURL: config.centralURL, DataDir: config.dataDir,
 		HTTPClient: &http.Client{Timeout: 20 * time.Second}, Credentials: config.credentials,
@@ -80,6 +85,14 @@ func run() error {
 		return fmt.Errorf("browser dependency preflight: %w", err)
 	}
 	return runReady(ctx, runtime, health)
+}
+
+func shutdownTelemetry(shutdown func(context.Context) error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := shutdown(ctx); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "cineko-probe: flush telemetry: %v\n", err)
+	}
 }
 
 func preflightEgress(parent context.Context) error {

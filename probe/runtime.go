@@ -13,6 +13,7 @@ import (
 	"time"
 
 	central "github.com/cineko-org/contracts/v3"
+	"github.com/cineko-org/probe/v2/internal/telemetry"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -142,7 +143,9 @@ func (runtime *Runtime) run(ctx context.Context, ready chan<- error) error {
 			default:
 			}
 			if errors.Is(err, ErrUnauthorized) {
-				runtime.config.Logger.Warn("Probe session expired before readiness; requesting a new bootstrap credential")
+				runtime.config.Logger.WarnContext(ctx, "Probe session expired before readiness",
+					"domain", "probe", "event", "probe.session.expired", "outcome", "requeued",
+					"reason", "session_expired_before_ready")
 				continue
 			}
 			notifyReady(ready, err)
@@ -160,7 +163,9 @@ func (runtime *Runtime) run(ctx context.Context, ready chan<- error) error {
 		if !errors.Is(err, ErrUnauthorized) {
 			return err
 		}
-		runtime.config.Logger.Warn("Probe session expired; requesting a new bootstrap credential")
+		runtime.config.Logger.WarnContext(ctx, "Probe session expired",
+			"domain", "probe", "event", "probe.session.expired", "outcome", "requeued",
+			"reason", "session_expired")
 	}
 }
 
@@ -241,7 +246,9 @@ func (runtime *Runtime) heartbeatLoop(
 				if errors.Is(err, ErrUnauthorized) {
 					return err
 				}
-				runtime.config.Logger.Warn("Probe heartbeat failed", "error", err)
+				runtime.config.Logger.WarnContext(ctx, "Probe heartbeat failed",
+					"domain", "probe", "event", "probe.heartbeat.completed", "outcome", "failed",
+					"reason", "central_request_failed", "error_type", telemetry.ErrorType(err))
 			}
 		}
 	}
@@ -278,7 +285,9 @@ func (runtime *Runtime) workLoop(ctx context.Context, session Session) error {
 			if !retryable(err) {
 				return err
 			}
-			runtime.config.Logger.Warn("Probe assignment claim failed", "error", err)
+			runtime.config.Logger.WarnContext(ctx, "Probe assignment claim failed",
+				"domain", "observation", "event", "observation.assignment.claim.completed", "outcome", "failed",
+				"reason", "central_request_failed", "error_type", telemetry.ErrorType(err))
 		} else if assignment != nil {
 			if err := runtime.handleClaimedAssignment(ctx, session, *assignment); err != nil {
 				return err
@@ -299,6 +308,9 @@ func (runtime *Runtime) handleClaimedAssignment(
 	session Session,
 	assignment central.ClaimAssignmentResponse,
 ) error {
+	runtime.config.Logger.InfoContext(ctx, "Observation assignment claimed",
+		"domain", "observation", "event", "observation.assignment.claimed", "outcome", "succeeded",
+		"assignment_id", assignment.AssignmentID, "task_kind", assignment.Task.Kind)
 	runtime.setActive(assignment.AssignmentID)
 	defer runtime.setActive("")
 	var err error
@@ -311,9 +323,10 @@ func (runtime *Runtime) handleClaimedAssignment(
 		return err
 	}
 	if err != nil && !errors.Is(err, ErrLeaseExpired) && ctx.Err() == nil {
-		runtime.config.Logger.Error(
-			"Probe assignment failed", "assignment_id", assignment.AssignmentID, "error", err,
-		)
+		runtime.config.Logger.ErrorContext(ctx, "Observation assignment failed",
+			"domain", "observation", "event", "observation.assignment.completed", "outcome", "failed",
+			"assignment_id", assignment.AssignmentID, "task_kind", assignment.Task.Kind,
+			"reason", "execution_failed", "error_type", telemetry.ErrorType(err))
 	}
 	return nil
 }
@@ -357,12 +370,7 @@ func (runtime *Runtime) executeAssignment(
 		case <-ctx.Done():
 			return ctx.Err()
 		case capture := <-resultChannel:
-			finishedAt := runtime.clock().UTC()
-			result, err := runtime.assignmentResult(capture.output, capture.err, startedAt, finishedAt)
-			if err != nil {
-				return err
-			}
-			return runtime.commitResult(ctx, session, assignment, result)
+			return runtime.commitCapturedResult(ctx, session, assignment, capture, startedAt)
 		case <-ticker.C:
 			if !assignment.LeaseExpiresAt.After(runtime.clock()) {
 				cancel()
@@ -375,9 +383,10 @@ func (runtime *Runtime) executeAssignment(
 					cancel()
 					return err
 				}
-				runtime.config.Logger.Warn(
-					"Probe assignment heartbeat failed", "assignment_id", assignment.AssignmentID, "error", err,
-				)
+				runtime.config.Logger.WarnContext(ctx, "Observation assignment heartbeat failed",
+					"domain", "observation", "event", "observation.assignment.heartbeat.completed",
+					"outcome", "failed", "assignment_id", assignment.AssignmentID,
+					"reason", "central_request_failed", "error_type", telemetry.ErrorType(err))
 			case !response.LeaseExpiresAt.After(runtime.clock()):
 				cancel()
 				return errors.New("central returned an invalid assignment lease extension")
@@ -386,6 +395,36 @@ func (runtime *Runtime) executeAssignment(
 			}
 		}
 	}
+}
+
+func (runtime *Runtime) commitCapturedResult(
+	ctx context.Context,
+	session Session,
+	assignment central.ClaimAssignmentResponse,
+	capture captureResult,
+	startedAt time.Time,
+) error {
+	finishedAt := runtime.clock().UTC()
+	result, err := runtime.assignmentResult(capture.output, capture.err, startedAt, finishedAt)
+	if err != nil {
+		return err
+	}
+	if err := runtime.commitResult(ctx, session, assignment, result); err != nil {
+		return err
+	}
+	outcome := "succeeded"
+	switch result.Status {
+	case "failed":
+		outcome = "failed"
+	case "partial":
+		outcome = "degraded"
+	}
+	runtime.config.Logger.InfoContext(ctx, "Observation assignment completed",
+		"domain", "observation", "event", "observation.assignment.completed", "outcome", outcome,
+		"assignment_id", assignment.AssignmentID, "run_id", result.RunID,
+		"task_kind", assignment.Task.Kind, "result_status", result.Status,
+		"duration_ms", finishedAt.Sub(startedAt).Milliseconds())
+	return nil
 }
 
 func (runtime *Runtime) captureAssignment(ctx context.Context, task central.AssignmentTask) captureResult {
@@ -538,7 +577,10 @@ func (runtime *Runtime) randomDuration(minimum, maximum time.Duration) (time.Dur
 }
 
 func (runtime *Runtime) logRetry(operation string, err error, delay time.Duration) {
-	runtime.config.Logger.Warn("Central request will be retried", "operation", operation, "delay", delay, "error", err)
+	runtime.config.Logger.Warn("Central request will be retried",
+		"domain", "probe", "event", "probe.central_request.retry_scheduled", "outcome", "requeued",
+		"operation", operation, "retry_delay_ms", delay.Milliseconds(),
+		"reason", "central_request_failed", "error_type", telemetry.ErrorType(err))
 }
 
 func resultStatus(output executionOutput, captureErr error) string {

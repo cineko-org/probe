@@ -13,6 +13,13 @@ import (
 	central "github.com/cineko-org/contracts/v3"
 )
 
+func TestAPIErrorFormatsStableMetadata(t *testing.T) {
+	err := (&APIError{StatusCode: 503, Code: "unavailable", RequestID: "request_01"}).Error()
+	if err != "Central API unavailable (503, request request_01)" {
+		t.Fatalf("Error() = %q", err)
+	}
+}
+
 func TestHTTPAPIProbeLifecycleContract(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
