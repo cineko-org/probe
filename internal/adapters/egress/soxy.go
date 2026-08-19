@@ -20,6 +20,8 @@ type soxyClient struct {
 	httpClient *http.Client
 }
 
+type lookupIPAddr func(context.Context, string) ([]net.IPAddr, error)
+
 type soxySlot struct {
 	ID        string `json:"id"`
 	Status    string `json:"status"`
@@ -54,21 +56,25 @@ func (err *soxyAPIError) Error() string {
 }
 
 func newSoxyClient(rawURL, token string, httpClient *http.Client) (*soxyClient, error) {
+	return newSoxyClientWithResolver(rawURL, token, httpClient, net.DefaultResolver.LookupIPAddr)
+}
+
+func newSoxyClientWithResolver(
+	rawURL, token string,
+	httpClient *http.Client,
+	lookup lookupIPAddr,
+) (*soxyClient, error) {
 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil {
 		return nil, fmt.Errorf("parse Soxy URL: %w", err)
 	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.Host == "" {
-		return nil, errors.New("soxy URL must be an HTTP or HTTPS origin")
-	}
-	if parsed.Scheme != "https" && !isLoopbackHost(parsed.Hostname()) && !isPrivateIPHost(parsed.Hostname()) {
-		return nil, errors.New("soxy URL must use HTTPS unless its host is loopback or a private IP address")
-	}
-	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Path != "" && parsed.Path != "/" {
-		return nil, errors.New("soxy URL must not contain credentials, a path, query, or fragment")
+	privateHTTPOrigin, err := validateSoxyOrigin(parsed, lookup)
+	if err != nil {
+		return nil, err
 	}
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 15 * time.Second}
+		defaultTransport := http.DefaultTransport.(*http.Transport) //nolint:errcheck,forcetypeassert // standard library invariant.
+		httpClient = defaultSoxyHTTPClient(privateHTTPOrigin, lookup, defaultTransport)
 	}
 	client := *httpClient
 	client.CheckRedirect = func(*http.Request, []*http.Request) error {
@@ -77,6 +83,73 @@ func newSoxyClient(rawURL, token string, httpClient *http.Client) (*soxyClient, 
 	return &soxyClient{
 		baseURL: strings.TrimRight(parsed.String(), "/"), token: strings.TrimSpace(token), httpClient: &client,
 	}, nil
+}
+
+func validateSoxyOrigin(parsed *url.URL, lookup lookupIPAddr) (bool, error) {
+	if parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.Host == "" {
+		return false, errors.New("soxy URL must be an HTTP or HTTPS origin")
+	}
+	privateHTTPOrigin := parsed.Scheme == "http" && !isLoopbackHost(parsed.Hostname()) && !isPrivateIPHost(parsed.Hostname())
+	if privateHTTPOrigin {
+		validationContext, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		err := validatePrivateNetworkHost(validationContext, parsed.Hostname(), lookup)
+		cancel()
+		if err != nil {
+			return false, errors.New("soxy URL must use HTTPS unless its host resolves only to private IP addresses")
+		}
+	}
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Path != "" && parsed.Path != "/" {
+		return false, errors.New("soxy URL must not contain credentials, a path, query, or fragment")
+	}
+	return privateHTTPOrigin, nil
+}
+
+func defaultSoxyHTTPClient(
+	privateHTTPOrigin bool,
+	lookup lookupIPAddr,
+	baseTransport *http.Transport,
+) *http.Client {
+	transport := baseTransport.Clone()
+	if privateHTTPOrigin {
+		transport.DialContext = privateNetworkDialContext(lookup)
+	}
+	return &http.Client{Timeout: 15 * time.Second, Transport: transport}
+}
+
+func validatePrivateNetworkHost(ctx context.Context, host string, lookup lookupIPAddr) error {
+	if lookup == nil {
+		return errors.New("private network resolver is unavailable")
+	}
+	addresses, err := lookup(ctx, strings.TrimSpace(host))
+	if err != nil || len(addresses) == 0 {
+		return errors.New("private network host cannot be resolved")
+	}
+	for _, address := range addresses {
+		if address.IP == nil || !address.IP.IsPrivate() && !address.IP.IsLoopback() {
+			return errors.New("private network host resolved outside the private network")
+		}
+	}
+	return nil
+}
+
+func privateNetworkDialContext(lookup lookupIPAddr) func(context.Context, string, string) (net.Conn, error) {
+	dialer := &net.Dialer{}
+	return func(ctx context.Context, network, address string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, fmt.Errorf("parse private network address: %w", err)
+		}
+		addresses, err := lookup(ctx, host)
+		if err != nil || len(addresses) == 0 {
+			return nil, errors.New("resolve private network address")
+		}
+		for _, resolved := range addresses {
+			if resolved.IP == nil || !resolved.IP.IsPrivate() && !resolved.IP.IsLoopback() {
+				return nil, errors.New("private network address resolved outside the private network")
+			}
+		}
+		return dialer.DialContext(ctx, network, net.JoinHostPort(addresses[0].IP.String(), port))
+	}
 }
 
 func isPrivateIPHost(host string) bool {
