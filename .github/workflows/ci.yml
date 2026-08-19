@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - name: Use the canonical Ubuntu mirror
+        run: sudo sed -i -E 's|https?://[^[:space:]]+/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/apt-mirrors.txt
+      - name: Install pinned Playwright runtime
+        run: |
+          playwright_go_version="$(bash scripts/playwright-version.sh go)"
+          go run "github.com/mxschmitt/playwright-go/cmd/playwright@${playwright_go_version}" install --with-deps chromium
+      - run: make check
+
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - id: runtime
+        run: echo "playwright-version=$(bash scripts/playwright-version.sh driver)" >> "$GITHUB_OUTPUT"
+      - name: Build native Probe image for runtime preflight
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          build-args: PLAYWRIGHT_VERSION=${{ steps.runtime.outputs.playwright-version }}
+          tags: cineko-probe:ci
+      - name: Launch bundled Playwright and Chromium
+        run: bash scripts/check-container-runtime.sh cineko-probe:ci
+      - name: Build both supported architectures
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: false
+          build-args: PLAYWRIGHT_VERSION=${{ steps.runtime.outputs.playwright-version }}

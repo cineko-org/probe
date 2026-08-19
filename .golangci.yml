@@ -1,0 +1,74 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - bodyclose
+    - copyloopvar
+    - cyclop
+    - dupl
+    - durationcheck
+    - errcheck
+    - errorlint
+    - fatcontext
+    - gocheckcompilerdirectives
+    - gocritic
+    - gocyclo
+    - gosec
+    - govet
+    - ineffassign
+    - misspell
+    - nilerr
+    - nilnesserr
+    - noctx
+    - prealloc
+    - reassign
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - staticcheck
+    - unconvert
+    - unparam
+    - unused
+    - wastedassign
+    - whitespace
+  settings:
+    cyclop:
+      max-complexity: 15
+    dupl:
+      threshold: 80
+    errcheck:
+      check-type-assertions: true
+    gocyclo:
+      min-complexity: 16
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+        - shadow
+    revive:
+      severity: warning
+  exclusions:
+    generated: lax
+    paths:
+      - internal/adapters/cgv/third_party
+      - internal/interfaces/webui/assets/schedule-widgets.js
+    rules:
+      - path: _test\.go
+        linters:
+          - cyclop
+          - dupl
+          - gocyclo
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - internal/adapters/cgv/third_party
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

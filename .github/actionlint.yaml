@@ -1,0 +1,4 @@
+self-hosted-runner:
+  labels: [cineko-ci, proxmox, nvme]
+
+config-variables: null
