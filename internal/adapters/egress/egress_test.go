@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -780,6 +782,91 @@ func TestSoxyClientRejectsInvalidOriginAndMalformedResponses(t *testing.T) {
 	}
 	if _, err := client.availableSlots(context.Background()); err == nil || !strings.Contains(err.Error(), "decode") {
 		t.Fatalf("availableSlots() error = %v", err)
+	}
+}
+
+func TestSoxyClientAllowsPrivateDNSAndPinsEveryConnection(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Host == "private-proxy.example.test" {
+			t.Fatal("request host unexpectedly lost its port")
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, `{"slots":[{"id":"slot-1","status":"available","current_ip":"192.0.2.1"}]}`)
+	}))
+	defer server.Close()
+
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lookup := func(_ context.Context, host string) ([]net.IPAddr, error) {
+		if host != "private-proxy.example.test" {
+			t.Fatalf("resolver host = %q", host)
+		}
+		return []net.IPAddr{{IP: net.ParseIP("127.0.0.1")}}, nil
+	}
+	client, err := newSoxyClientWithResolver(
+		"http://private-proxy.example.test:"+serverURL.Port(), "token", nil, lookup,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slots, err := client.availableSlots(context.Background()); err != nil || len(slots) != 1 {
+		t.Fatalf("availableSlots() = %v, %v", slots, err)
+	}
+}
+
+func TestSoxyClientRejectsPublicOrAmbiguousDNSForHTTP(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		addresses []net.IPAddr
+		err       error
+	}{
+		{name: "public", addresses: []net.IPAddr{{IP: net.ParseIP("203.0.113.10")}}},
+		{name: "mixed", addresses: []net.IPAddr{{IP: net.ParseIP("10.0.0.10")}, {IP: net.ParseIP("203.0.113.10")}}},
+		{name: "nil address", addresses: []net.IPAddr{{}}},
+		{name: "empty"},
+		{name: "lookup error", err: errors.New("lookup failed")},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			lookup := func(context.Context, string) ([]net.IPAddr, error) {
+				return test.addresses, test.err
+			}
+			if _, err := newSoxyClientWithResolver("http://private-proxy.example.test:8080", "token", nil, lookup); err == nil {
+				t.Fatal("newSoxyClientWithResolver() error = nil")
+			}
+		})
+	}
+	if _, err := newSoxyClientWithResolver("http://private-proxy.example.test:8080", "token", nil, nil); err == nil {
+		t.Fatal("newSoxyClientWithResolver() nil resolver error = nil")
+	}
+}
+
+func TestPrivateNetworkDialerDefensivePaths(t *testing.T) {
+	t.Parallel()
+	lookupError := privateNetworkDialContext(func(context.Context, string) ([]net.IPAddr, error) {
+		return nil, errors.New("lookup failed")
+	})
+	if _, err := lookupError(context.Background(), "tcp", "private-proxy.example.test:8080"); err == nil {
+		t.Fatal("privateNetworkDialContext() lookup error = nil")
+	}
+
+	publicAddress := privateNetworkDialContext(func(context.Context, string) ([]net.IPAddr, error) {
+		return []net.IPAddr{{IP: net.ParseIP("203.0.113.10")}}, nil
+	})
+	if _, err := publicAddress(context.Background(), "tcp", "private-proxy.example.test:8080"); err == nil {
+		t.Fatal("privateNetworkDialContext() public address error = nil")
+	}
+
+	invalidAddress := privateNetworkDialContext(func(context.Context, string) ([]net.IPAddr, error) {
+		return []net.IPAddr{{IP: net.ParseIP("127.0.0.1")}}, nil
+	})
+	if _, err := invalidAddress(context.Background(), "tcp", "missing-port"); err == nil {
+		t.Fatal("privateNetworkDialContext() invalid address error = nil")
 	}
 }
 
