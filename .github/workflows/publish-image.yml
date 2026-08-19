@@ -57,7 +57,15 @@ jobs:
 
       - name: Resolve the bundled browser runtime
         id: runtime
-        run: echo "playwright_version=$(bash scripts/playwright-version.sh driver)" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < VERSION)"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "VERSION must contain a semantic version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "playwright_version=$(bash scripts/playwright-version.sh driver)" >> "$GITHUB_OUTPUT"
 
       - name: Build and publish
         id: build
@@ -66,7 +74,9 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          build-args: PLAYWRIGHT_VERSION=${{ steps.runtime.outputs.playwright_version }}
+          build-args: |
+            CINEKO_VERSION=${{ steps.runtime.outputs.version }}
+            PLAYWRIGHT_VERSION=${{ steps.runtime.outputs.playwright_version }}
           tags: ${{ secrets.CINEKO_IMAGE }}:${{ steps.image.outputs.tag }}
 
       - name: Request immutable deployment
