@@ -9,9 +9,9 @@
 /.cineko/
 *.log
 .DS_Store
-/AGENTS.md
-/AGENTS.override.md
-/CLAUDE.md
+**/AGENTS.md
+**/AGENTS.override.md
+**/CLAUDE.md
 /deploy/secrets/
 /deploy/.env
 /deploy/.env.*
