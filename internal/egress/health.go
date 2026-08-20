@@ -30,20 +30,36 @@ func ValidateConfig(ctx context.Context, config Config) error {
 	proxies := append([]Proxy(nil), config.Proxies...)
 	proxies = append(proxies, config.ScanProxies...)
 	if manager.client != nil {
-		lease, acquireErr := manager.Acquire(ctx, PurposeScan)
-		if acquireErr != nil {
-			return fmt.Errorf("validate Soxy lease: %w", acquireErr)
-		}
-		probeErr := probe(lease.Context(), *lease.Proxy())
-		closeErr := lease.Close()
-		if probeErr != nil || closeErr != nil {
-			return fmt.Errorf("validate Soxy proxy: %w", errors.Join(probeErr, closeErr))
-		}
-		return nil
+		return validateSoxySlots(ctx, manager, probe)
 	}
 	for _, proxy := range proxies {
 		if err := probe(ctx, proxy); err != nil {
 			return fmt.Errorf("validate proxy %s: %w", proxy.Server, err)
+		}
+	}
+	return nil
+}
+
+func validateSoxySlots(ctx context.Context, manager *Manager, probe func(context.Context, Proxy) error) error {
+	slots, err := manager.client.availableSlots(ctx)
+	if err != nil {
+		return fmt.Errorf("validate Soxy inventory: %w", err)
+	}
+	for _, slot := range slots {
+		session, createErr := manager.client.createSession(ctx, manager.sessionTTL, slot.ID)
+		if createErr != nil {
+			return fmt.Errorf("validate Soxy slot %s: %w", slot.ID, createErr)
+		}
+		proxy, proxyErr := proxyFromSoxy(session.Proxy)
+		probeErr := error(nil)
+		if proxyErr == nil {
+			probeErr = probe(ctx, proxy)
+		}
+		cleanupContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		closeErr := manager.client.releaseSession(cleanupContext, session.ID)
+		cancel()
+		if proxyErr != nil || probeErr != nil || closeErr != nil {
+			return fmt.Errorf("validate Soxy slot %s: %w", slot.ID, errors.Join(proxyErr, probeErr, closeErr))
 		}
 	}
 	return nil

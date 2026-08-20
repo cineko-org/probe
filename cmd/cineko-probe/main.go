@@ -12,8 +12,8 @@ import (
 	"time"
 	_ "time/tzdata"
 
-	"github.com/cineko-org/probe/v2/internal/adapters/cgv"
-	"github.com/cineko-org/probe/v2/internal/adapters/egress"
+	"github.com/cineko-org/probe/v2/internal/egress"
+	"github.com/cineko-org/probe/v2/internal/provider/cgv"
 	"github.com/cineko-org/probe/v2/internal/telemetry"
 	"github.com/cineko-org/probe/v2/probe"
 )

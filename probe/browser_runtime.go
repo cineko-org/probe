@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	contracts "github.com/cineko-org/contracts/v3"
-	"github.com/cineko-org/probe/v2/internal/adapters/browserfactory"
+	cgvbrowser "github.com/cineko-org/probe/v2/internal/provider/cgv/browser"
 )
 
 // BrowserRuntimeConfig is shared by the standalone container and a
@@ -28,19 +28,19 @@ type BrowserRuntimeConfig struct {
 // maintaining a second Probe implementation.
 type BrowserRuntime struct {
 	runtime *Runtime
-	factory *browserfactory.Factory
+	factory *cgvbrowser.Factory
 }
 
 func NewBrowserRuntime(config BrowserRuntimeConfig) (*BrowserRuntime, error) {
 	return newBrowserRuntime(config, browserRuntimeFactories{
-		factory:  browserfactory.NewFromEnvironment,
+		factory:  cgvbrowser.NewFromEnvironment,
 		executor: NewCGVExecutor,
 	})
 }
 
 type browserRuntimeFactories struct {
-	factory  func(string) (*browserfactory.Factory, error)
-	executor func(*browserfactory.Factory) (*CGVExecutor, error)
+	factory  func(string) (*cgvbrowser.Factory, error)
+	executor func(*cgvbrowser.Factory) (*CGVExecutor, error)
 }
 
 func newBrowserRuntime(config BrowserRuntimeConfig, factories browserRuntimeFactories) (*BrowserRuntime, error) {

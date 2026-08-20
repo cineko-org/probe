@@ -2,11 +2,11 @@
 set -euo pipefail
 
 readonly packages=(
-  ./internal/adapters/egress
+  ./internal/egress
   ./internal/bootstrap
   ./probe
 )
-readonly cover_packages=./internal/adapters/egress,./internal/bootstrap,./probe
+readonly cover_packages=./internal/egress,./internal/bootstrap,./probe
 profile="$(mktemp "${TMPDIR:-/tmp}/cineko-unit-coverage.XXXXXX")"
 trap 'rm -f "$profile"' EXIT
 

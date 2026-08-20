@@ -1,4 +1,4 @@
-package browserfactory
+package browser
 
 import (
 	"context"
@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/cineko-org/probe/v2/internal/adapters/cgv"
-	"github.com/cineko-org/probe/v2/internal/adapters/egress"
+	"github.com/cineko-org/probe/v2/internal/egress"
+	"github.com/cineko-org/probe/v2/internal/provider/cgv"
 )
 
 func TestFactoryRequiresEgressManager(t *testing.T) {

@@ -1,4 +1,4 @@
-.PHONY: build check container-check contract-check contract-release-check coverage lint platform-check security test workflow-check
+.PHONY: build check container-check contract-check contract-release-check coverage lint platform-check security stealth-check test workflow-check
 
 GOLANGCI_LINT_VERSION ?= v2.12.2
 GOVULNCHECK_VERSION ?= v1.6.0
@@ -27,18 +27,22 @@ test:
 	go test -mod=vendor -race ./...
 
 contract-check:
-	grep -Eq '^# github.com/cineko-org/contracts/v3 v3.2.1( => ../contracts)?$$' vendor/modules.txt
+	grep -Eq '^# github.com/cineko-org/contracts/v3 v3.3.0( => ../contracts)?$$' vendor/modules.txt
 
 contract-release-check:
 	@! grep -Eq '^[[:space:]]*replace([[:space:]]|\()' go.mod
-	@grep -Eq '^[[:space:]]*github.com/cineko-org/contracts/v3 v3.2.1$$' go.mod
-	@grep -Eq '^# github.com/cineko-org/contracts/v3 v3.2.1$$' vendor/modules.txt
-	@grep -Eq '^github.com/cineko-org/contracts/v3 v3.2.1 h1:' go.sum
+	@grep -Eq '^[[:space:]]*github.com/cineko-org/contracts/v3 v3.3.0$$' go.mod
+	@grep -Eq '^# github.com/cineko-org/contracts/v3 v3.3.0$$' vendor/modules.txt
+	@grep -Eq '^github.com/cineko-org/contracts/v3 v3.3.0 h1:' go.sum
 
 workflow-check:
 	go run github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION) .github/workflows/*.yml
+	bash scripts/check-probe-release-payload.sh
+
+stealth-check:
+	bash scripts/check-stealth-provenance.sh
 
 platform-check:
 	bash scripts/check-probe-platforms.sh
 
-check: lint security coverage test contract-release-check workflow-check platform-check
+check: lint security coverage test contract-release-check workflow-check stealth-check platform-check

@@ -78,26 +78,28 @@ func DefaultBrowserConfig() BrowserConfig {
 }
 
 type Adapter struct {
-	ctx               context.Context
-	cancelContext     context.CancelFunc
-	browserContext    playwright.BrowserContext
-	page              playwright.Page
-	identitySession   playwright.CDPSession
-	stopPlaywright    func() error
-	closeOnce         sync.Once
-	lifecycleMu       sync.Mutex
-	closeHooks        []func()
-	closed            bool
-	artifactsDir      string
-	mu                sync.Mutex
-	selectedRegion    string
-	selectedTheater   string
-	blockedRequests   atomic.Uint64
-	continuedRequests atomic.Uint64
-	blockResources    bool
-	userAgent         browserUserAgent
-	userAgentMetadata userAgentBootstrapIdentity
-	webGLIdentity     webGLIdentity
+	ctx                context.Context
+	cancelContext      context.CancelFunc
+	browserContext     playwright.BrowserContext
+	page               playwright.Page
+	identitySession    playwright.CDPSession
+	stopPlaywright     func() error
+	closeOnce          sync.Once
+	lifecycleMu        sync.Mutex
+	closeHooks         []func()
+	closed             bool
+	artifactsDir       string
+	mu                 sync.Mutex
+	selectedRegion     string
+	selectedTheater    string
+	blockedRequests    atomic.Uint64
+	continuedRequests  atomic.Uint64
+	blockResources     bool
+	scheduleResponseMu sync.Mutex
+	providerResponses  []capturedProviderResponse
+	userAgent          browserUserAgent
+	userAgentMetadata  userAgentBootstrapIdentity
+	webGLIdentity      webGLIdentity
 }
 
 type BrowserPool struct {
@@ -434,6 +436,7 @@ func (adapter *Adapter) installBrowserHooks(scripts []string) error {
 	if err := adapter.browserContext.Route("**/*", adapter.routeRequest); err != nil {
 		return fmt.Errorf("install browser resource routing: %w", err)
 	}
+	adapter.page.OnResponse(adapter.captureProviderResponse)
 	adapter.browserContext.OnPage(func(page playwright.Page) {
 		if page != adapter.page {
 			_ = page.Close()

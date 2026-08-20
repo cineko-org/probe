@@ -55,6 +55,9 @@ func TestHTTPAPIProbeLifecycleContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !api.AssignmentClaimWaitsForAvailability() {
+		t.Fatal("HTTP API claim did not advertise availability waiting")
+	}
 	registration := testRegistration()
 	registered, err := api.Register(context.Background(), "bootstrap", registration)
 	if err != nil || registered.ProbeID != "probe_01" {
@@ -199,6 +202,12 @@ func TestHTTPAPIValidationAndTransportFailures(t *testing.T) {
 	}
 	if err := decodeJSON([]byte(`{} {}`), &map[string]any{}); err == nil {
 		t.Fatal("multiple response values accepted")
+	}
+	var compatible struct {
+		Known string `json:"known"`
+	}
+	if err := decodeJSON([]byte(`{"known":"value","additiveOptionalField":true}`), &compatible); err != nil || compatible.Known != "value" {
+		t.Fatalf("additive response field broke minor-version compatibility: %+v, %v", compatible, err)
 	}
 }
 
