@@ -157,5 +157,6 @@ jobs:
             -f "client_payload[target]=$TARGET" \
             -f "client_payload[digest]=$IMAGE_DIGEST" \
             -f "client_payload[tag]=$IMAGE_TAG" \
+            -f "client_payload[version]=${{ inputs.release_tag }}" \
             -f "client_payload[source_repository]=$GITHUB_REPOSITORY" \
             -f "client_payload[source_sha]=$SOURCE_SHA"
