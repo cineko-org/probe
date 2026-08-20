@@ -325,8 +325,8 @@ func TestStealthBootstrapAppliesBeforeNavigation(t *testing.T) {
 	if !identity.ChromeApp || !identity.ChromeCSI || !identity.ChromeLoadTimes {
 		t.Fatalf("window.chrome evasions = app:%t csi:%t loadTimes:%t", identity.ChromeApp, identity.ChromeCSI, identity.ChromeLoadTimes)
 	}
-	if !identity.ConsolePatched || identity.PermissionState != "denied" || !identity.EventTrustedSpoofed {
-		t.Fatalf("mandatory chrome stealth = console:%t permission:%q eventTrusted:%t", identity.ConsolePatched, identity.PermissionState, identity.EventTrustedSpoofed)
+	if identity.ConsolePatched || identity.PermissionState != "denied" || identity.EventTrustedSpoofed {
+		t.Fatalf("passive chrome stealth = consolePatched:%t permission:%q eventTrustedSpoofed:%t", identity.ConsolePatched, identity.PermissionState, identity.EventTrustedSpoofed)
 	}
 	if identity.H264Support == "" {
 		t.Fatal("H.264 codec support is still empty")

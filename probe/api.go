@@ -273,7 +273,6 @@ func decodeAPIError(response *http.Response, contents []byte) error {
 
 func decodeJSON(contents []byte, output any) error {
 	decoder := json.NewDecoder(bytes.NewReader(contents))
-	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(output); err != nil {
 		return err
 	}

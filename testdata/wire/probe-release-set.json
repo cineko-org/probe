@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 2,
+  "payload": {
+    "releases": [
+      {
+        "channel": "stable",
+        "version": "2.2.0",
+        "protocol": 3,
+        "browserRevision": "1228",
+        "image": "registry.example/cineko/probe",
+        "imageDigest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "publishedAt": "2026-08-19T10:00:00Z"
+      }
+    ]
+  }
+}
