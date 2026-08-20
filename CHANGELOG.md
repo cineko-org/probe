@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.1](https://github.com/cineko-org/probe/compare/v2.3.0...v2.3.1) (2026-08-20)
+
+
+### Bug Fixes
+
+* **release:** include version in deployment event ([#9](https://github.com/cineko-org/probe/issues/9)) ([b0ef03b](https://github.com/cineko-org/probe/commit/b0ef03bdaea86e075016ae8782df82a5ef987c5d))
+
 ## [2.3.0](https://github.com/cineko-org/probe/compare/v2.2.0...v2.3.0) (2026-08-20)
 
 
