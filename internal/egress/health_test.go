@@ -3,10 +3,12 @@ package egress
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 )
@@ -43,13 +45,30 @@ func TestValidateConfigManagedSoxy(t *testing.T) {
 	t.Parallel()
 	var releaseStatus atomic.Int32
 	releaseStatus.Store(http.StatusNoContent)
+	var created atomic.Int32
+	var requestedMu sync.Mutex
+	var requestedSlots []string
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.Method + " " + request.URL.Path {
 		case "GET /v1/slots":
-			writeTestJSON(writer, http.StatusOK, map[string]any{"slots": []map[string]any{{"id": "slot", "status": "available", "current_ip": "192.0.2.1"}}})
+			writeTestJSON(writer, http.StatusOK, map[string]any{"slots": []map[string]any{
+				{"id": "slot-one", "status": "available", "current_ip": "192.0.2.1"},
+				{"id": "slot-two", "status": "available", "current_ip": "192.0.2.2"},
+			}})
 		case "POST /v1/sessions":
-			writeTestJSON(writer, http.StatusCreated, readySession("health"))
-		case "DELETE /v1/sessions/health":
+			var payload struct{ SlotID string `json:"slot_id"` }
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Errorf("decode session request: %v", err)
+			}
+			requestedMu.Lock()
+			requestedSlots = append(requestedSlots, payload.SlotID)
+			requestedMu.Unlock()
+			id := "health-one"
+			if created.Add(1) == 2 {
+				id = "health-two"
+			}
+			writeTestJSON(writer, http.StatusCreated, readySession(id))
+		case "DELETE /v1/sessions/health-one", "DELETE /v1/sessions/health-two":
 			writer.WriteHeader(int(releaseStatus.Load()))
 		default:
 			http.NotFound(writer, request)
@@ -68,6 +87,13 @@ func TestValidateConfigManagedSoxy(t *testing.T) {
 	if err := ValidateConfig(context.Background(), config); err != nil {
 		t.Fatalf("ValidateConfig() error = %v", err)
 	}
+	requestedMu.Lock()
+	if strings.Join(requestedSlots, ",") != "slot-one,slot-two" {
+		t.Fatalf("requested Soxy slots = %v", requestedSlots)
+	}
+	requestedSlots = nil
+	requestedMu.Unlock()
+	created.Store(0)
 	releaseStatus.Store(http.StatusInternalServerError)
 	if err := ValidateConfig(context.Background(), config); err == nil || !strings.Contains(err.Error(), "validate Soxy proxy") {
 		t.Fatalf("ValidateConfig(release failure) error = %v", err)

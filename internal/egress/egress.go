@@ -27,16 +27,22 @@ const (
 )
 
 var (
+	// ErrNoProxyCapacity indicates that a managed proxy has no available slot.
 	ErrNoProxyCapacity = errors.New("no egress proxy is currently available")
-	ErrLeaseRenewal    = errors.New("egress proxy lease renewal failed")
-	ErrUnknownPolicy   = errors.New("unknown egress policy")
+	// ErrLeaseRenewal indicates that a managed proxy lease could not be renewed.
+	ErrLeaseRenewal = errors.New("egress proxy lease renewal failed")
+	// ErrUnknownPolicy indicates that an assignment references an unsupported policy.
+	ErrUnknownPolicy = errors.New("unknown egress policy")
 )
 
+// Purpose identifies the browser operation receiving an egress lease.
 type Purpose string
 
 const (
+	// PurposeSession is authenticated user-facing browser work.
 	PurposeSession Purpose = "session"
-	PurposeScan    Purpose = "scan"
+	// PurposeScan is anonymous provider observation.
+	PurposeScan Purpose = "scan"
 
 	// PolicyScanDefault is the Central assignment policy for a Probe scan. It
 	// prefers the locally configured static or Soxy proxy and otherwise uses
@@ -45,6 +51,7 @@ const (
 	PolicyScanDefault = "scan_default"
 )
 
+// Proxy describes one outbound HTTP proxy endpoint.
 type Proxy struct {
 	Server   string
 	Username string
@@ -57,6 +64,7 @@ type secretFile interface {
 	Close() error
 }
 
+// Config contains the local egress inventory and lease timing policy.
 type Config struct {
 	SoxyURL    string
 	SoxyToken  string
@@ -72,6 +80,7 @@ type Config struct {
 	Probe            func(context.Context, Proxy) error
 }
 
+// Manager resolves egress policy and owns active proxy leases.
 type Manager struct {
 	client            *soxyClient
 	sessionTTL        time.Duration
@@ -82,6 +91,7 @@ type Manager struct {
 	maxRenewFailures  int
 }
 
+// NewFromEnvironment loads the supported secret-file configuration and creates an egress manager.
 func NewFromEnvironment() (*Manager, error) {
 	config, err := ConfigFromEnvironment()
 	if err != nil {
@@ -95,6 +105,7 @@ func ConfigFromEnvironment() (Config, error) {
 	return configFromLookup(os.LookupEnv)
 }
 
+// New validates egress configuration and creates a manager.
 func New(config Config) (*Manager, error) {
 	config.SoxyURL = strings.TrimSpace(config.SoxyURL)
 	config.SoxyToken = strings.TrimSpace(config.SoxyToken)
@@ -314,6 +325,7 @@ func readSecretFileWith(
 	return string(contents), nil
 }
 
+// ParseProxy validates and normalizes one HTTP, HTTPS, or SOCKS5 proxy URL.
 func ParseProxy(rawURL string) (Proxy, error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
@@ -340,6 +352,7 @@ func ParseProxy(rawURL string) (Proxy, error) {
 	return proxy, nil
 }
 
+// Acquire obtains a lease for a purpose using the manager's default policy.
 func (manager *Manager) Acquire(parent context.Context, purpose Purpose) (*Lease, error) {
 	return manager.acquire(parent, purpose)
 }
@@ -472,6 +485,7 @@ func randomIndex(random io.Reader, size int) (int, error) {
 type releaseFunc func(context.Context) error
 type extendFunc func(context.Context) error
 
+// Lease represents one bounded outbound-network reservation.
 type Lease struct {
 	proxy     Proxy
 	ctx       context.Context
@@ -503,8 +517,10 @@ func newLease(
 	return lease
 }
 
+// Context is canceled when the lease expires or is closed.
 func (lease *Lease) Context() context.Context { return lease.ctx }
 
+// Proxy returns the selected endpoint, if this lease uses one.
 func (lease *Lease) Proxy() *Proxy {
 	if lease.proxy.Server == "" {
 		return nil
@@ -513,6 +529,7 @@ func (lease *Lease) Proxy() *Proxy {
 	return &proxy
 }
 
+// Close releases the lease and stops its renewal loop.
 func (lease *Lease) Close() error {
 	lease.closeOnce.Do(func() {
 		lease.cancel(nil)

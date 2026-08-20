@@ -63,6 +63,11 @@ type HTTPAPI struct {
 	client  *http.Client
 }
 
+// AssignmentClaimWaitsForAvailability reports that the Central endpoint holds
+// an empty claim until an assignment notification or the bounded wait expires.
+// Runtime uses this to avoid adding a second random delay after the long poll.
+func (*HTTPAPI) AssignmentClaimWaitsForAvailability() bool { return true }
+
 func NewHTTPAPI(rawBaseURL string, client *http.Client) (*HTTPAPI, error) {
 	baseURL, err := url.Parse(strings.TrimSpace(rawBaseURL))
 	if err != nil || baseURL.Scheme == "" || baseURL.Host == "" || baseURL.User != nil ||

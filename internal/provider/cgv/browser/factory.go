@@ -1,4 +1,4 @@
-package browserfactory
+package browser
 
 import (
 	"context"
@@ -9,12 +9,14 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/cineko-org/probe/v2/internal/adapters/cgv"
-	"github.com/cineko-org/probe/v2/internal/adapters/egress"
+	"github.com/cineko-org/probe/v2/internal/egress"
+	"github.com/cineko-org/probe/v2/internal/provider/cgv"
 )
 
+// ErrClosed indicates that a factory cannot accept more browser work.
 var ErrClosed = errors.New("browser factory is closed")
 
+// Task describes one browser operation and the identity policy it requires.
 type Task struct {
 	Purpose        egress.Purpose
 	EgressPolicyID string
@@ -49,6 +51,7 @@ type Factory struct {
 	sessionManager *egress.Manager
 }
 
+// New creates a browser task factory with the supplied outbound-network capability.
 func New(base cgv.BrowserConfig, egressManager *egress.Manager) (*Factory, error) {
 	if egressManager == nil {
 		return nil, errors.New("egress manager is required")
@@ -69,6 +72,7 @@ func New(base cgv.BrowserConfig, egressManager *egress.Manager) (*Factory, error
 	return factory, nil
 }
 
+// NewFromEnvironment creates a factory using the Probe data and network settings.
 func NewFromEnvironment(dataDir string) (*Factory, error) {
 	egressManager, err := egress.NewFromEnvironment()
 	if err != nil {
@@ -115,6 +119,7 @@ func (factory *Factory) ConfigureEgress(config egress.Config) error {
 	return nil
 }
 
+// Open acquires one task slot and starts the browser requested by task.
 func (factory *Factory) Open(ctx context.Context, task Task) (*cgv.Adapter, error) {
 	if ctx == nil {
 		return nil, errors.New("browser task context is required")
@@ -311,6 +316,7 @@ func (factory *Factory) profileForTask(task Task, slot int) (string, func(), err
 	return factory.base.ProfileDir, nil, nil
 }
 
+// Close stops the shared browser runtime and releases the session lease.
 func (factory *Factory) Close() {
 	factory.closeOnce.Do(func() {
 		factory.mu.Lock()

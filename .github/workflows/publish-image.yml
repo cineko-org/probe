@@ -1,9 +1,14 @@
 name: Publish image
 
 on:
-  push:
-    branches:
-      - main
+  workflow_call:
+    inputs:
+      release_tag:
+        required: true
+        type: string
+      source_sha:
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -18,6 +23,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_sha }}
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
 
@@ -25,6 +32,8 @@ jobs:
         env:
           DEPLOYMENT_REPOSITORY: ${{ secrets.CINEKO_DEPLOYMENT_REPOSITORY }}
           DEPLOYMENT_TOKEN: ${{ secrets.CINEKO_DEPLOYMENT_TOKEN }}
+          CENTRAL_URL: ${{ secrets.CINEKO_CENTRAL_URL }}
+          RELEASE_PUBLISH_TOKEN: ${{ secrets.CINEKO_RELEASE_PUBLISH_TOKEN }}
           IMAGE: ${{ secrets.CINEKO_IMAGE }}
           REGISTRY: ${{ secrets.CINEKO_REGISTRY }}
           REGISTRY_USERNAME: ${{ secrets.CINEKO_REGISTRY_USERNAME }}
@@ -34,6 +43,8 @@ jobs:
           for value in \
             "$DEPLOYMENT_REPOSITORY" \
             "$DEPLOYMENT_TOKEN" \
+            "$CENTRAL_URL" \
+            "$RELEASE_PUBLISH_TOKEN" \
             "$IMAGE" \
             "$REGISTRY" \
             "$REGISTRY_USERNAME" \
@@ -53,10 +64,21 @@ jobs:
 
       - name: Resolve immutable image tag
         id: image
-        run: echo "tag=sha-${GITHUB_SHA:0:12}" >> "$GITHUB_OUTPUT"
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "release source SHA is invalid" >&2
+            exit 1
+          fi
+          echo "tag=sha-${SOURCE_SHA:0:12}" >> "$GITHUB_OUTPUT"
 
       - name: Resolve the bundled browser runtime
         id: runtime
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
           version="$(tr -d '[:space:]' < VERSION)"
@@ -64,7 +86,23 @@ jobs:
             echo "VERSION must contain a semantic version" >&2
             exit 1
           fi
+          if [[ "$RELEASE_TAG" != "v${version}" ]]; then
+            echo "release tag ${RELEASE_TAG} does not match VERSION ${version}" >&2
+            exit 1
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          browser_revision="$(sed -nE 's/^ARG CINEKO_BROWSER_REVISION=([0-9]+)$/\1/p' Dockerfile)"
+          if [[ ! "$browser_revision" =~ ^[0-9]+$ ]]; then
+            echo "Dockerfile must declare one numeric browser revision" >&2
+            exit 1
+          fi
+          echo "browser_revision=$browser_revision" >> "$GITHUB_OUTPUT"
+          published_at="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.published_at')"
+          if [[ -z "$published_at" || "$published_at" == "null" ]]; then
+            echo "published release metadata is unavailable" >&2
+            exit 1
+          fi
+          echo "published_at=$published_at" >> "$GITHUB_OUTPUT"
           echo "playwright_version=$(bash scripts/playwright-version.sh driver)" >> "$GITHUB_OUTPUT"
 
       - name: Build and publish
@@ -79,6 +117,31 @@ jobs:
             PLAYWRIGHT_VERSION=${{ steps.runtime.outputs.playwright_version }}
           tags: ${{ secrets.CINEKO_IMAGE }}:${{ steps.image.outputs.tag }}
 
+      - name: Register the immutable Probe release
+        env:
+          BROWSER_REVISION: ${{ steps.runtime.outputs.browser_revision }}
+          CENTRAL_URL: ${{ secrets.CINEKO_CENTRAL_URL }}
+          IMAGE: ${{ secrets.CINEKO_IMAGE }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          PROBE_VERSION: ${{ steps.runtime.outputs.version }}
+          PUBLISHED_AT: ${{ steps.runtime.outputs.published_at }}
+          RELEASE_PUBLISH_TOKEN: ${{ secrets.CINEKO_RELEASE_PUBLISH_TOKEN }}
+        run: |
+          set -euo pipefail
+          payload="$(bash scripts/render-probe-release.sh \
+            "$PROBE_VERSION" \
+            "$BROWSER_REVISION" \
+            "$IMAGE" \
+            "$IMAGE_DIGEST" \
+            "$PUBLISHED_AT")"
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer ${RELEASE_PUBLISH_TOKEN}" \
+            --header "Content-Type: application/json" \
+            --header "X-Cineko-Protocol: 3" \
+            --data "$payload" \
+            "${CENTRAL_URL%/}/v1/release-registry/probe"
+
       - name: Request immutable deployment
         env:
           TARGET: cineko-probe
@@ -86,6 +149,7 @@ jobs:
           GH_TOKEN: ${{ secrets.CINEKO_DEPLOYMENT_TOKEN }}
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
           IMAGE_TAG: ${{ steps.image.outputs.tag }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
           set -euo pipefail
           gh api --method POST "repos/${DEPLOYMENT_REPOSITORY}/dispatches" \
@@ -94,4 +158,4 @@ jobs:
             -f "client_payload[digest]=$IMAGE_DIGEST" \
             -f "client_payload[tag]=$IMAGE_TAG" \
             -f "client_payload[source_repository]=$GITHUB_REPOSITORY" \
-            -f "client_payload[source_sha]=$GITHUB_SHA"
+            -f "client_payload[source_sha]=$SOURCE_SHA"

@@ -8,9 +8,9 @@ import (
 	"time"
 
 	central "github.com/cineko-org/contracts/v3"
-	"github.com/cineko-org/probe/v2/internal/adapters/browserfactory"
-	"github.com/cineko-org/probe/v2/internal/adapters/cgv"
-	"github.com/cineko-org/probe/v2/internal/adapters/egress"
+	"github.com/cineko-org/probe/v2/internal/egress"
+	"github.com/cineko-org/probe/v2/internal/provider/cgv"
+	cgvbrowser "github.com/cineko-org/probe/v2/internal/provider/cgv/browser"
 )
 
 type scheduleBrowser interface {
@@ -23,7 +23,7 @@ type catalogBrowser interface {
 }
 
 type CGVExecutor struct {
-	open    func(context.Context, browserfactory.Task) (scheduleBrowser, error)
+	open    func(context.Context, cgvbrowser.Task) (scheduleBrowser, error)
 	clock   func() time.Time
 	seatMap SeatMapExecutor
 }
@@ -41,12 +41,12 @@ func (executor *CGVExecutor) CaptureSeatMap(
 	return executor.seatMap.CaptureSeatMap(ctx, task)
 }
 
-func NewCGVExecutor(factory *browserfactory.Factory) (*CGVExecutor, error) {
+func NewCGVExecutor(factory *cgvbrowser.Factory) (*CGVExecutor, error) {
 	if factory == nil {
 		return nil, errors.New("probe browser factory is required")
 	}
 	return &CGVExecutor{
-		open: func(ctx context.Context, task browserfactory.Task) (scheduleBrowser, error) {
+		open: func(ctx context.Context, task cgvbrowser.Task) (scheduleBrowser, error) {
 			return factory.Open(ctx, task)
 		},
 		clock: time.Now,
@@ -64,19 +64,19 @@ func (executor *CGVExecutor) Capture(
 	if err != nil {
 		return nil, fmt.Errorf("load assignment time zone: %w", err)
 	}
-	browser, err := executor.open(ctx, browserfactory.Task{
+	browserSession, err := executor.open(ctx, cgvbrowser.Task{
 		Purpose: egress.PurposeScan, EgressPolicyID: task.EgressPolicyID, Headless: true,
 		Locale: task.Locale, TimeZone: task.TimeZone,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("open Probe browser: %w", err)
 	}
-	defer browser.Close()
+	defer browserSession.Close()
 	theater := cgv.ScheduleTheater{
 		ID: task.Theater.ID, ProviderID: task.Theater.ProviderID, SourceKey: task.Theater.SourceKey,
 		Region: task.Theater.Region, Name: task.Theater.Name,
 	}
-	values, err := browser.CaptureSchedules(ctx, theater, task.TargetDates)
+	values, err := browserSession.CaptureSchedules(ctx, theater, task.TargetDates)
 	if err != nil {
 		return nil, fmt.Errorf("capture CGV schedules: %w", err)
 	}
@@ -98,15 +98,15 @@ func (executor *CGVExecutor) CaptureCatalog(
 	if task.Kind != central.CapabilityCGVCatalogCapture {
 		return nil, fmt.Errorf("unsupported Probe task kind %q", task.Kind)
 	}
-	browser, err := executor.open(ctx, browserfactory.Task{
+	browserSession, err := executor.open(ctx, cgvbrowser.Task{
 		Purpose: egress.PurposeScan, EgressPolicyID: task.EgressPolicyID, Headless: true,
 		Locale: task.Locale, TimeZone: task.TimeZone,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("open Probe browser: %w", err)
 	}
-	defer browser.Close()
-	catalog, supported := browser.(catalogBrowser)
+	defer browserSession.Close()
+	catalog, supported := browserSession.(catalogBrowser)
 	if !supported {
 		return nil, errors.New("probe browser does not support catalog capture")
 	}
@@ -167,7 +167,7 @@ func (executor *CGVExecutor) convertCapture(
 		if err := validateCanonicalShowtime(showtime); err != nil {
 			return central.Capture{}, err
 		}
-		startsAt, endsAt, err := showtimeRange(showtime.Date, showtime.StartsAt, showtime.EndsAt, location)
+		startsAt, endsAt, err := cgv.ParseShowtimeRange(showtime.Date, showtime.StartsAt, showtime.EndsAt, location)
 		if err != nil {
 			return central.Capture{}, fmt.Errorf("convert showtime %q: %w", showtime.ID, err)
 		}
@@ -213,26 +213,6 @@ func validateCanonicalShowtime(showtime cgv.ScheduleShowtime) error {
 		}
 	}
 	return nil
-}
-
-func showtimeRange(
-	date string,
-	startClock string,
-	endClock string,
-	location *time.Location,
-) (time.Time, time.Time, error) {
-	startsAt, err := time.ParseInLocation(time.DateOnly+" 15:04", date+" "+startClock, location)
-	if err != nil {
-		return time.Time{}, time.Time{}, err
-	}
-	endsAt, err := time.ParseInLocation(time.DateOnly+" 15:04", date+" "+endClock, location)
-	if err != nil {
-		return time.Time{}, time.Time{}, err
-	}
-	if !endsAt.After(startsAt) {
-		endsAt = endsAt.Add(24 * time.Hour)
-	}
-	return startsAt, endsAt, nil
 }
 
 func captureErrorCode(value string) string {

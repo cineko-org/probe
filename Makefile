@@ -37,6 +37,7 @@ contract-release-check:
 
 workflow-check:
 	go run github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION) .github/workflows/*.yml
+	bash scripts/check-probe-release-payload.sh
 
 platform-check:
 	bash scripts/check-probe-platforms.sh

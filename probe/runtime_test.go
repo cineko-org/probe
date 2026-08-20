@@ -356,6 +356,11 @@ func TestRuntimeStateConfigurationAndHelpers(t *testing.T) {
 	if _, err := NewRuntime(&fakeAPI{}, StaticCredential("token"), &fakeExecutor{}, invalidIntervals); err == nil {
 		t.Fatal("invalid intervals accepted")
 	}
+	invalidHeartbeatLimit := valid
+	invalidHeartbeatLimit.HeartbeatFailureLimit = -1
+	if _, err := NewRuntime(&fakeAPI{}, StaticCredential("token"), &fakeExecutor{}, invalidHeartbeatLimit); err == nil {
+		t.Fatal("invalid heartbeat failure limit accepted")
+	}
 	runtime := newRuntimeForTest(t, &fakeAPI{}, &fakeExecutor{})
 	if err := runtime.Run(nil); err == nil { //nolint:staticcheck // Explicitly verifies the nil-context boundary.
 		t.Fatal("nil runtime context accepted")
@@ -478,6 +483,16 @@ func TestRuntimeRegistrationAndLoopFailurePaths(t *testing.T) {
 	if err := runtime.heartbeatLoop(context.Background(), Session{}, time.Millisecond); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("heartbeat loop terminal error = %v", err)
 	}
+	api = &fakeAPI{heartbeatErrors: []error{io.ErrUnexpectedEOF, io.ErrUnexpectedEOF, io.ErrUnexpectedEOF}}
+	runtime = newRuntimeForTest(t, api, &fakeExecutor{})
+	if err := runtime.heartbeatLoop(context.Background(), Session{}, time.Millisecond); !errors.Is(err, ErrHeartbeatUnavailable) {
+		t.Fatalf("heartbeat failure limit error = %v", err)
+	}
+	api = &fakeAPI{heartbeatErrors: []error{io.ErrUnexpectedEOF, nil, ErrUnauthorized}}
+	runtime = newRuntimeForTest(t, api, &fakeExecutor{})
+	if err := runtime.heartbeatLoop(context.Background(), Session{}, time.Millisecond); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("successful heartbeat did not reset failure count: %v", err)
+	}
 	loopContext, stopLoop := context.WithCancel(context.Background())
 	stopLoop()
 	if err := runtime.heartbeatLoop(loopContext, Session{}, time.Second); !errors.Is(err, context.Canceled) {
@@ -544,6 +559,85 @@ func TestRuntimeRegistrationAndLoopFailurePaths(t *testing.T) {
 	runtime.random = errorReader{}
 	if err := runtime.workLoop(context.Background(), Session{}); !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Fatalf("claim delay random error = %v", err)
+	}
+}
+
+func TestRuntimeEnforcesCentralMinimumPolicy(t *testing.T) {
+	t.Parallel()
+	api := &fakeAPI{heartbeatResponse: central.ProbeHeartbeatResponse{
+		MinimumRuntimeVersion: "2.0.0", MinimumBrowserRevision: "1228",
+	}}
+	runtime := newRuntimeForTest(t, api, &fakeExecutor{})
+	runtime.config.Registration.Runtime.Version = "1.9.9"
+	runtime.config.Registration.Runtime.BrowserRevision = "1228"
+	if err := runtime.sendProbeHeartbeat(context.Background(), Session{}); !errors.Is(err, ErrIncompatibleRuntime) {
+		t.Fatalf("outdated runtime policy error = %v", err)
+	}
+	if !runtime.draining() {
+		t.Fatal("outdated runtime did not enter drain state")
+	}
+	runtime.remoteDrain = false
+	runtime.config.Registration.Runtime.Version = "2.0.0"
+	runtime.config.Registration.Runtime.BrowserRevision = "1227"
+	if err := runtime.validateMinimumPolicy(central.ProbeHeartbeatResponse{
+		MinimumRuntimeVersion: "2.0.0", MinimumBrowserRevision: "1228",
+	}); !errors.Is(err, ErrIncompatibleRuntime) {
+		t.Fatalf("outdated browser policy error = %v", err)
+	}
+	for _, test := range []struct {
+		current string
+		minimum string
+		want    bool
+	}{
+		{current: "2.1.3", minimum: "2.1.3", want: true},
+		{current: "v2.2.0", minimum: "2.1.9", want: true},
+		{current: "2.1.0-dev", minimum: "2.0.9", want: true},
+		{current: "2.1.0-dev", minimum: "2.1.0", want: false},
+		{current: "2.1.0-rc.10", minimum: "2.1.0-rc.2", want: true},
+		{current: "2.1.0", minimum: "2.1.0-rc.10", want: true},
+	} {
+		got, err := semanticVersionAtLeast(test.current, test.minimum)
+		if err != nil || got != test.want {
+			t.Fatalf("semanticVersionAtLeast(%q, %q) = %t, %v", test.current, test.minimum, got, err)
+		}
+	}
+	for _, test := range []struct {
+		current string
+		minimum string
+		want    bool
+	}{
+		{current: "1228", minimum: "1228", want: true},
+		{current: "1228", minimum: "1229", want: false},
+		{current: "1229", minimum: "1228", want: true},
+	} {
+		got, err := browserRevisionAtLeast(test.current, test.minimum)
+		if err != nil || got != test.want {
+			t.Fatalf("browserRevisionAtLeast(%q, %q) = %t, %v", test.current, test.minimum, got, err)
+		}
+	}
+	for _, test := range []struct {
+		current string
+		minimum string
+	}{
+		{current: "not-a-version", minimum: "2.0.0"},
+		{current: "2.0.0", minimum: "not-a-version"},
+		{current: "2..1", minimum: "2.1.0"},
+	} {
+		if _, err := semanticVersionAtLeast(test.current, test.minimum); err == nil {
+			t.Fatalf("invalid semantic version accepted: %+v", test)
+		}
+	}
+	for _, test := range []struct {
+		current string
+		minimum string
+	}{
+		{current: "-1", minimum: "1"},
+		{current: "1228.0", minimum: "1228"},
+		{current: "1228", minimum: "+1228"},
+	} {
+		if _, err := browserRevisionAtLeast(test.current, test.minimum); err == nil {
+			t.Fatalf("invalid browser revision accepted: %+v", test)
+		}
 	}
 }
 
@@ -705,6 +799,7 @@ type fakeAPI struct {
 	assignmentHeartbeatErrors   []error
 	commitErrors                []error
 	registerResponse            central.RegisterProbeResponse
+	heartbeatResponse           central.ProbeHeartbeatResponse
 	useRegisterResponse         bool
 	assignmentHeartbeatResponse central.AssignmentHeartbeatResponse
 	assignment                  *central.ClaimAssignmentResponse
@@ -756,7 +851,7 @@ func (api *fakeAPI) HeartbeatProbe(
 	if cancel != nil {
 		cancel()
 	}
-	return central.ProbeHeartbeatResponse{}, err
+	return api.heartbeatResponse, err
 }
 
 func (api *fakeAPI) DisconnectProbe(context.Context, Session) error {
