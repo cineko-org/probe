@@ -3,11 +3,12 @@ package browser
 import (
 	"context"
 	"errors"
-	"github.com/cineko-org/probe/v2/internal/egress"
-	"github.com/cineko-org/probe/v2/internal/provider/cgv"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/cineko-org/probe/v2/internal/egress"
+	"github.com/cineko-org/probe/v2/internal/provider/cgv"
 )
 
 func TestFactoryRequiresEgressManager(t *testing.T) {

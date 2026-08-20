@@ -639,6 +639,29 @@ func TestRuntimeEnforcesCentralMinimumPolicy(t *testing.T) {
 			t.Fatalf("invalid browser revision accepted: %+v", test)
 		}
 	}
+	for _, value := range []string{"", " \t\n"} {
+		if _, err := parseBrowserRevision(value); err == nil {
+			t.Fatalf("blank browser revision %q accepted", value)
+		}
+	}
+}
+
+func TestRuntimeWorkLoopSkipsDelayAfterAvailabilityWaitingClaim(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	baseAPI := &fakeAPI{onClaim: cancel}
+	api := availabilityWaitingAPI{fakeAPI: baseAPI}
+	runtime := newRuntimeForTest(t, &api, &fakeExecutor{})
+	// A long-polling claim owns the wait. If workLoop adds its random delay,
+	// this reader makes the test fail before the cancellation is observed.
+	runtime.random = errorReader{}
+	if err := runtime.workLoop(ctx, Session{}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("availability-waiting claim loop = %v", err)
+	}
+	if baseAPI.claimCalls != 1 {
+		t.Fatalf("availability-waiting claim calls = %d", baseAPI.claimCalls)
+	}
 }
 
 func TestRuntimeLeaseHeartbeatFailurePaths(t *testing.T) {
@@ -815,6 +838,12 @@ type fakeAPI struct {
 	onAssignmentHeartbeat       func()
 	cancelOnHeartbeat           func()
 }
+
+type availabilityWaitingAPI struct {
+	*fakeAPI
+}
+
+func (availabilityWaitingAPI) AssignmentClaimWaitsForAvailability() bool { return true }
 
 func (api *fakeAPI) Register(
 	context.Context,

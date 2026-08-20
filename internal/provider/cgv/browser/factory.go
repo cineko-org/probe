@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/cineko-org/probe/v2/internal/egress"
-	"github.com/cineko-org/probe/v2/internal/provider/cgv"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/cineko-org/probe/v2/internal/egress"
+	"github.com/cineko-org/probe/v2/internal/provider/cgv"
 )
 
 // ErrClosed indicates that a factory cannot accept more browser work.

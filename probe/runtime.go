@@ -351,10 +351,8 @@ func parseBrowserRevision(value string) (*big.Int, error) {
 			return nil, errors.New("browser revision must be a nonnegative integer")
 		}
 	}
-	revision, ok := new(big.Int).SetString(value, 10)
-	if !ok {
-		return nil, errors.New("browser revision must be a nonnegative integer")
-	}
+	// Every rune is an ASCII digit, so base-10 parsing cannot fail.
+	revision, _ := new(big.Int).SetString(value, 10)
 	return revision, nil
 }
 

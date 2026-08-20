@@ -55,6 +55,9 @@ func TestHTTPAPIProbeLifecycleContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !api.AssignmentClaimWaitsForAvailability() {
+		t.Fatal("HTTP API claim did not advertise availability waiting")
+	}
 	registration := testRegistration()
 	registered, err := api.Register(context.Background(), "bootstrap", registration)
 	if err != nil || registered.ProbeID != "probe_01" {

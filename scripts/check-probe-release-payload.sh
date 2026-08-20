@@ -8,7 +8,7 @@ readonly actual="$(bash scripts/render-probe-release.sh \
   sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
   2026-08-19T10:00:00Z)"
 
-jq --exit-status \
+jq --null-input --exit-status \
   --argjson actual "$actual" \
   --slurpfile expected testdata/wire/probe-release-set.json \
   '$actual == $expected[0]' \
