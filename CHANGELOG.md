@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.0](https://github.com/cineko-org/probe/compare/v2.2.0...v2.3.0) (2026-08-20)
+
+
+### Features
+
+* **probe:** harden runtime domains ([#7](https://github.com/cineko-org/probe/issues/7)) ([7a42b86](https://github.com/cineko-org/probe/commit/7a42b86a76903ef20b92098e9b0dcbcde36cffaa))
+
 ## [2.2.0](https://github.com/cineko-org/probe/compare/v2.1.3...v2.2.0) (2026-08-19)
 
 
