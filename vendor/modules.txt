@@ -4,7 +4,7 @@ github.com/cenkalti/backoff/v5
 # github.com/cespare/xxhash/v2 v2.3.0
 ## explicit; go 1.11
 github.com/cespare/xxhash/v2
-# github.com/cineko-org/contracts/v3 v3.2.1
+# github.com/cineko-org/contracts/v3 v3.3.0
 ## explicit; go 1.26
 github.com/cineko-org/contracts/v3
 # github.com/deckarep/golang-set/v2 v2.9.0
