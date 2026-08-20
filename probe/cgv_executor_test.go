@@ -7,9 +7,9 @@ import (
 	"time"
 
 	central "github.com/cineko-org/contracts/v3"
-	"github.com/cineko-org/probe/v2/internal/adapters/browserfactory"
 	"github.com/cineko-org/probe/v2/internal/adapters/cgv"
-	"github.com/cineko-org/probe/v2/internal/adapters/egress"
+	browserruntime "github.com/cineko-org/probe/v2/internal/browser"
+	"github.com/cineko-org/probe/v2/internal/egress"
 )
 
 func TestCGVExecutorCaptureMapping(t *testing.T) {
@@ -28,10 +28,10 @@ func TestCGVExecutorCaptureMapping(t *testing.T) {
 		},
 		{TargetDate: "2026-08-21", Error: cgv.ErrUIContractChanged.Error()},
 	}}
-	var openedTask browserfactory.Task
+	var openedTask browserruntime.Task
 	openCalls := 0
 	executor := &CGVExecutor{
-		open: func(_ context.Context, task browserfactory.Task) (scheduleBrowser, error) {
+		open: func(_ context.Context, task browserruntime.Task) (scheduleBrowser, error) {
 			openCalls++
 			openedTask = task
 			return browser, nil
@@ -65,6 +65,35 @@ func TestCGVExecutorCaptureMapping(t *testing.T) {
 	}
 }
 
+func TestCGVExecutorConvertsCompactProviderDateAndExtendedHour(t *testing.T) {
+	t.Parallel()
+	task := testAssignmentTask()
+	showtimeKey := "0013/2026-08-21/018/3"
+	movieKey := "30001323"
+	auditoriumKey := "0013/018"
+	showtime := cgv.ScheduleShowtime{
+		ID: central.CatalogID(central.ProviderCGV, "showtime", showtimeKey), ProviderID: central.ProviderCGV,
+		SourceKey: showtimeKey, TheaterID: task.Theater.ID,
+		MovieID: central.CatalogID(central.ProviderCGV, "movie", movieKey), MovieSourceKey: movieKey,
+		MovieTitle: "심야 영화", AuditoriumID: central.CatalogID(central.ProviderCGV, "auditorium", auditoriumKey),
+		AuditoriumSourceKey: auditoriumKey, AuditoriumName: "IMAX관",
+		Date: "2026-08-21", StartsAt: "25:00", EndsAt: "27:09",
+	}
+	executor := &CGVExecutor{clock: time.Now}
+	capture, err := executor.convertCapture(cgv.ScheduleCapture{
+		TargetDate: "2026-08-21", Complete: true, Showtimes: []cgv.ScheduleShowtime{showtime},
+	}, time.FixedZone("KST", 9*60*60))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStart := time.Date(2026, 8, 22, 1, 0, 0, 0, time.FixedZone("KST", 9*60*60))
+	wantEnd := time.Date(2026, 8, 22, 3, 9, 0, 0, time.FixedZone("KST", 9*60*60))
+	if len(capture.Showtimes) != 1 || !capture.Showtimes[0].StartsAt.Equal(wantStart) ||
+		!capture.Showtimes[0].EndsAt.Equal(wantEnd) || capture.Showtimes[0].StartsAt.Weekday() != time.Saturday {
+		t.Fatalf("converted extended showtime = %+v, want %v - %v", capture.Showtimes, wantStart, wantEnd)
+	}
+}
+
 func TestCGVExecutorCatalogCapture(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 8, 18, 5, 0, 0, 0, time.UTC)
@@ -77,7 +106,7 @@ func TestCGVExecutorCatalogCapture(t *testing.T) {
 		}},
 	}}
 	executor := &CGVExecutor{
-		open:  func(context.Context, browserfactory.Task) (scheduleBrowser, error) { return browser, nil },
+		open:  func(context.Context, browserruntime.Task) (scheduleBrowser, error) { return browser, nil },
 		clock: func() time.Time { return now },
 	}
 	task := testAssignmentTask()
@@ -104,7 +133,7 @@ func TestCGVExecutorFailuresAndHelpers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	factory, err := browserfactory.New(cgv.DefaultBrowserConfig(), manager)
+	factory, err := browserruntime.New(cgv.DefaultBrowserConfig(), manager)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +148,7 @@ func TestCGVExecutorFailuresAndHelpers(t *testing.T) {
 		t.Fatalf("cancelled factory capture = %v", err)
 	}
 	executor := &CGVExecutor{
-		open: func(context.Context, browserfactory.Task) (scheduleBrowser, error) { return nil, errIO }, clock: time.Now,
+		open: func(context.Context, browserruntime.Task) (scheduleBrowser, error) { return nil, errIO }, clock: time.Now,
 	}
 	task := testAssignmentTask()
 	task.Kind = "unsupported"
@@ -152,14 +181,14 @@ func TestCGVExecutorFailuresAndHelpers(t *testing.T) {
 	if _, err := executor.CaptureCatalog(context.Background(), task); !errors.Is(err, errIO) {
 		t.Fatalf("catalog browser open error = %v", err)
 	}
-	executor.open = func(context.Context, browserfactory.Task) (scheduleBrowser, error) {
+	executor.open = func(context.Context, browserruntime.Task) (scheduleBrowser, error) {
 		return &scheduleOnlyBrowser{}, nil
 	}
 	if _, err := executor.CaptureCatalog(context.Background(), task); err == nil {
 		t.Fatal("catalog-unsupported browser accepted")
 	}
 	catalogBrowser := &fakeScheduleBrowser{err: errIO}
-	executor.open = func(context.Context, browserfactory.Task) (scheduleBrowser, error) {
+	executor.open = func(context.Context, browserruntime.Task) (scheduleBrowser, error) {
 		return catalogBrowser, nil
 	}
 	if _, err := executor.CaptureCatalog(context.Background(), task); !errors.Is(err, errIO) || !catalogBrowser.closed {
@@ -167,7 +196,7 @@ func TestCGVExecutorFailuresAndHelpers(t *testing.T) {
 	}
 	task = testAssignmentTask()
 	browser := &fakeScheduleBrowser{err: errIO}
-	executor.open = func(context.Context, browserfactory.Task) (scheduleBrowser, error) { return browser, nil }
+	executor.open = func(context.Context, browserruntime.Task) (scheduleBrowser, error) { return browser, nil }
 	if _, err := executor.Capture(context.Background(), task); !errors.Is(err, errIO) || !browser.closed {
 		t.Fatalf("capture error = %v, closed = %t", err, browser.closed)
 	}
@@ -177,7 +206,7 @@ func TestCGVExecutorFailuresAndHelpers(t *testing.T) {
 			ID: "bad", Date: "bad", StartsAt: "10:00", EndsAt: "11:00",
 		}},
 	}}}
-	executor.open = func(context.Context, browserfactory.Task) (scheduleBrowser, error) { return browser, nil }
+	executor.open = func(context.Context, browserruntime.Task) (scheduleBrowser, error) { return browser, nil }
 	if _, err := executor.Capture(context.Background(), task); err == nil {
 		t.Fatal("invalid showtime accepted")
 	}
@@ -203,6 +232,25 @@ func TestCGVExecutorFailuresAndHelpers(t *testing.T) {
 	startsAt, endsAt, err := showtimeRange("2026-08-20", "23:50", "00:20", location)
 	if err != nil || endsAt.Sub(startsAt) != 30*time.Minute || endsAt.Day() != 21 {
 		t.Fatalf("overnight showtime range = %v - %v, %v", startsAt, endsAt, err)
+	}
+	startsAt, endsAt, err = showtimeRange("2026-08-21", "24:30", "27:09", location)
+	wantStart := time.Date(2026, 8, 22, 0, 30, 0, 0, location)
+	wantEnd := time.Date(2026, 8, 22, 3, 9, 0, 0, location)
+	if err != nil || !startsAt.Equal(wantStart) || !endsAt.Equal(wantEnd) || startsAt.Weekday() != time.Saturday {
+		t.Fatalf("extended-hour showtime range = %v - %v, want %v - %v, %v", startsAt, endsAt, wantStart, wantEnd, err)
+	}
+	startsAt, endsAt, err = showtimeRange("2026-08-21", "25:00", "27:09", location)
+	wantStart = time.Date(2026, 8, 22, 1, 0, 0, 0, location)
+	if err != nil || !startsAt.Equal(wantStart) || !endsAt.Equal(wantEnd) || startsAt.Weekday() != time.Saturday {
+		t.Fatalf("extended-hour weekday range = %v - %v, want %v - %v, %v", startsAt, endsAt, wantStart, wantEnd, err)
+	}
+	for _, invalid := range [][2]string{
+		{"-1:00", "01:00"}, {"48:00", "49:00"}, {"01:00", "48:00"},
+		{"bad", "01:00"}, {"01:00", "00:60"}, {"01:00", "01:00"},
+	} {
+		if _, _, err := showtimeRange("2026-08-21", invalid[0], invalid[1], location); err == nil {
+			t.Fatalf("invalid showtime range accepted: %q - %q", invalid[0], invalid[1])
+		}
 	}
 	if captureErrorCode("") != "capture_incomplete" ||
 		captureErrorCode(context.DeadlineExceeded.Error()) != "capture_timeout" ||

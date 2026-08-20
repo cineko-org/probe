@@ -22,6 +22,13 @@ type rawSchedule struct {
 	Group      string `json:"group"`
 	Auditorium string `json:"auditorium"`
 	Disabled   bool   `json:"disabled"`
+	SiteNo     string `json:"siteNo"`
+	ScnsNo     string `json:"scnsNo"`
+	ScnYmd     string `json:"scnYmd"`
+	ScnSseq    string `json:"scnSseq"`
+	MovNo      string `json:"movNo"`
+	MovfNo     string `json:"movfNo"`
+	ProdNo     string `json:"prodNo"`
 }
 
 type scheduleEntry struct {
@@ -112,6 +119,7 @@ func (adapter *Adapter) CaptureSchedules(
 }
 
 func (adapter *Adapter) selectCinemaTheater(region, theaterName string) error {
+	adapter.clearProviderResponse("schedules")
 	if err := adapter.navigate(bookingCinemaURL); err != nil {
 		return fmt.Errorf("open CGV cinema booking: %w", err)
 	}
@@ -168,27 +176,46 @@ func (adapter *Adapter) selectDate(isoDate string) error {
 	}
 	day := parsed.Format("02")
 	weekdays := []string{"일", "월", "화", "수", "목", "금", "토"}
-	labels := []string{weekdays[parsed.Weekday()] + " " + day}
+	labels := dateButtonLabels(weekdays[parsed.Weekday()], day, false)
 	now := time.Now().In(time.FixedZone("KST", 9*60*60))
 	if now.Format("2006-01-02") == isoDate {
-		labels = append([]string{"오늘 " + day}, labels...)
+		labels = append(dateButtonLabels("오늘", day, true), labels...)
 	}
 	for _, label := range labels {
+		adapter.clearProviderResponse("schedules")
 		clicked, err := adapter.clickButtonExact(label)
 		if err != nil {
 			return err
 		}
 		if clicked {
-			return adapter.wait(500 * time.Millisecond)
+			if err := adapter.wait(500 * time.Millisecond); err != nil {
+				return err
+			}
+			return adapter.waitForProviderResponse("schedules", 2*time.Second)
 		}
 	}
 	return fmt.Errorf("%w: target date %s is not selectable", ErrUIContractChanged, isoDate)
+}
+
+func dateButtonLabels(prefix, day string, allowReverse bool) []string {
+	labels := []string{prefix + " " + day, prefix + day}
+	if allowReverse {
+		labels = append(labels, day+" "+prefix, day+prefix)
+	}
+	return labels
 }
 
 func (adapter *Adapter) extractSchedules(
 	date string,
 	theater ScheduleTheater,
 ) ([]scheduleEntry, error) {
+	if payload := adapter.providerResponse("schedules"); len(payload) > 0 {
+		entries, err := parseCGVScheduleResponse(payload, date, theater)
+		if err != nil {
+			return nil, fmt.Errorf("parse CGV structured schedules: %w", err)
+		}
+		return entries, nil
+	}
 	const expression = `(() => {
 		const normalize = value => (value || '').replace(/\s+/g, ' ').trim();
 		const previous = (element, selector) => {
@@ -226,17 +253,28 @@ func (adapter *Adapter) extractSchedules(
 	if err := adapter.evaluate(expression, &raw); err != nil {
 		return nil, fmt.Errorf("extract CGV schedules: %w", err)
 	}
+	return parseSchedules(raw, date, theater)
+}
+
+func parseSchedules(raw []rawSchedule, date string, theater ScheduleTheater) ([]scheduleEntry, error) {
 	entries := make([]scheduleEntry, 0, len(raw))
 	for _, item := range raw {
 		entry, ok := parseSchedule(item, date, theater)
-		if ok {
-			entries = append(entries, entry)
+		if !ok {
+			return nil, fmt.Errorf(
+				"%w: rejected one of %d schedule candidates", ErrUIContractChanged, len(raw),
+			)
 		}
+		entries = append(entries, entry)
 	}
 	return entries, nil
 }
 
 func parseSchedule(item rawSchedule, date string, theater ScheduleTheater) (scheduleEntry, bool) {
+	canonicalDate := canonicalCGVDate(date)
+	if canonicalDate == "" {
+		return scheduleEntry{}, false
+	}
 	match := schedulePattern.FindStringSubmatch(normalize(item.Label))
 	if match == nil {
 		return scheduleEntry{}, false
@@ -250,14 +288,15 @@ func parseSchedule(item rawSchedule, date string, theater ScheduleTheater) (sche
 	if auditoriumName == "" {
 		return scheduleEntry{}, false
 	}
-	movieSourceKey := canonicalMovieSourceKey(item.Movie)
-	if movieSourceKey == "" {
+	if !validCGVProviderKeys(item.SiteNo, item.MovNo, item.ScnsNo, canonicalDate, item.ScnSseq) {
 		return scheduleEntry{}, false
 	}
-	auditoriumSourceKey := canonicalAuditoriumSourceKey(theater.SourceKey, auditoriumName)
-	showtimeSourceKey := canonicalShowtimeSourceKey(
-		theater.SourceKey, date, movieSourceKey, auditoriumName, match[1],
-	)
+	if item.SiteNo != strings.TrimSpace(theater.SourceKey) {
+		return scheduleEntry{}, false
+	}
+	movieSourceKey := cgvMovieSourceKey(item.MovNo)
+	auditoriumSourceKey := cgvAuditoriumSourceKey(item.SiteNo, item.ScnsNo)
+	showtimeSourceKey := cgvShowtimeSourceKey(item.SiteNo, canonicalDate, item.ScnsNo, item.ScnSseq)
 	showtime := ScheduleShowtime{
 		ID:         contracts.CatalogID(contracts.ProviderCGV, "showtime", showtimeSourceKey),
 		ProviderID: contracts.ProviderCGV, SourceKey: showtimeSourceKey, TheaterID: theater.ID,
@@ -266,7 +305,7 @@ func parseSchedule(item rawSchedule, date string, theater ScheduleTheater) (sche
 		AuditoriumID:        contracts.CatalogID(contracts.ProviderCGV, "auditorium", auditoriumSourceKey),
 		AuditoriumSourceKey: auditoriumSourceKey,
 		AuditoriumName:      auditoriumName, ScreenTypes: screenTypes,
-		Date: date, StartsAt: match[1], EndsAt: match[2],
+		Date: canonicalDate, StartsAt: match[1], EndsAt: match[2],
 		AvailableSeats: available, Capacity: capacity,
 		SoldOut: item.Disabled || match[5] != "", ObservedAt: time.Now(),
 		SourceLabel: normalize(item.Label),
@@ -309,20 +348,3 @@ func detectScreenTypes(value string) []string {
 }
 
 func normalize(value string) string { return strings.Join(strings.Fields(value), " ") }
-
-func canonicalMovieSourceKey(title string) string {
-	return normalize(title)
-}
-
-func canonicalAuditoriumSourceKey(theaterSourceKey, auditoriumName string) string {
-	return normalize(theaterSourceKey) + "/" + normalize(auditoriumName)
-}
-
-func canonicalShowtimeSourceKey(
-	theaterSourceKey, date, movieSourceKey, auditoriumName, startsAt string,
-) string {
-	return strings.Join([]string{
-		normalize(theaterSourceKey), normalize(date), normalize(movieSourceKey),
-		normalize(auditoriumName), normalize(startsAt),
-	}, "/")
-}

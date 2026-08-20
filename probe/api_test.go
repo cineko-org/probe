@@ -200,6 +200,12 @@ func TestHTTPAPIValidationAndTransportFailures(t *testing.T) {
 	if err := decodeJSON([]byte(`{} {}`), &map[string]any{}); err == nil {
 		t.Fatal("multiple response values accepted")
 	}
+	var compatible struct {
+		Known string `json:"known"`
+	}
+	if err := decodeJSON([]byte(`{"known":"value","additiveOptionalField":true}`), &compatible); err != nil || compatible.Known != "value" {
+		t.Fatalf("additive response field broke minor-version compatibility: %+v, %v", compatible, err)
+	}
 }
 
 func assertRequestHeaders(t *testing.T, request *http.Request, bearer, idempotency, lease string) {

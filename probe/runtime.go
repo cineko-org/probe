@@ -9,20 +9,28 @@ import (
 	"io"
 	"log/slog"
 	"math/big"
+	"strings"
 	"sync"
 	"time"
 
 	central "github.com/cineko-org/contracts/v3"
 	"github.com/cineko-org/probe/v2/internal/telemetry"
 
+	"golang.org/x/mod/semver"
 	"golang.org/x/sync/errgroup"
 )
 
 const (
-	DefaultClaimMinimum     = 2 * time.Second
-	DefaultClaimMaximum     = 5 * time.Second
-	DefaultReconnectMinimum = time.Second
-	DefaultReconnectMaximum = 30 * time.Second
+	DefaultClaimMinimum      = 2 * time.Second
+	DefaultClaimMaximum      = 5 * time.Second
+	DefaultReconnectMinimum  = time.Second
+	DefaultReconnectMaximum  = 30 * time.Second
+	DefaultHeartbeatFailures = 3
+)
+
+var (
+	ErrHeartbeatUnavailable = errors.New("central heartbeat is unavailable")
+	ErrIncompatibleRuntime  = errors.New("probe runtime does not meet Central minimum policy")
 )
 
 type Executor interface {
@@ -54,6 +62,7 @@ type Config struct {
 	ClaimMaximum          time.Duration
 	ReconnectMinimum      time.Duration
 	ReconnectMaximum      time.Duration
+	HeartbeatFailureLimit int
 	AvailableCapabilities func() []string
 	Logger                *slog.Logger
 }
@@ -88,8 +97,12 @@ func NewRuntime(api API, credentials CredentialSource, executor Executor, config
 	defaultDuration(&config.ClaimMaximum, DefaultClaimMaximum)
 	defaultDuration(&config.ReconnectMinimum, DefaultReconnectMinimum)
 	defaultDuration(&config.ReconnectMaximum, DefaultReconnectMaximum)
+	if config.HeartbeatFailureLimit == 0 {
+		config.HeartbeatFailureLimit = DefaultHeartbeatFailures
+	}
 	if config.ClaimMinimum <= 0 || config.ClaimMaximum < config.ClaimMinimum ||
-		config.ReconnectMinimum <= 0 || config.ReconnectMaximum < config.ReconnectMinimum {
+		config.ReconnectMinimum <= 0 || config.ReconnectMaximum < config.ReconnectMinimum ||
+		config.HeartbeatFailureLimit < 1 {
 		return nil, errors.New("probe retry intervals are invalid")
 	}
 	if config.Logger == nil {
@@ -237,19 +250,27 @@ func (runtime *Runtime) heartbeatLoop(
 ) error {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	consecutiveFailures := 0
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
 			if err := runtime.sendProbeHeartbeat(ctx, session); err != nil {
-				if errors.Is(err, ErrUnauthorized) {
+				if !retryable(err) {
 					return err
 				}
+				consecutiveFailures++
 				runtime.config.Logger.WarnContext(ctx, "Probe heartbeat failed",
 					"domain", "probe", "event", "probe.heartbeat.completed", "outcome", "failed",
 					"reason", "central_request_failed", "error_type", telemetry.ErrorType(err))
+				if consecutiveFailures >= runtime.config.HeartbeatFailureLimit {
+					return fmt.Errorf("%w after %d consecutive failures: %w",
+						ErrHeartbeatUnavailable, consecutiveFailures, err)
+				}
+				continue
 			}
+			consecutiveFailures = 0
 		}
 	}
 }
@@ -260,10 +281,81 @@ func (runtime *Runtime) sendProbeHeartbeat(ctx context.Context, session Session)
 	if err != nil {
 		return err
 	}
+	if err := runtime.validateMinimumPolicy(response); err != nil {
+		runtime.mu.Lock()
+		runtime.remoteDrain = true
+		runtime.mu.Unlock()
+		return err
+	}
 	runtime.mu.Lock()
 	runtime.remoteDrain = response.Drain
 	runtime.mu.Unlock()
 	return nil
+}
+
+func (runtime *Runtime) validateMinimumPolicy(response central.ProbeHeartbeatResponse) error {
+	runtimeVersion := runtime.config.Registration.Runtime.Version
+	browserRevision := runtime.config.Registration.Runtime.BrowserRevision
+	if ok, err := semanticVersionAtLeast(runtimeVersion, response.MinimumRuntimeVersion); err != nil || !ok {
+		return fmt.Errorf("%w: runtime %q, minimum %q", ErrIncompatibleRuntime, runtimeVersion, response.MinimumRuntimeVersion)
+	}
+	if ok, err := browserRevisionAtLeast(browserRevision, response.MinimumBrowserRevision); err != nil || !ok {
+		return fmt.Errorf("%w: browser %q, minimum %q", ErrIncompatibleRuntime, browserRevision, response.MinimumBrowserRevision)
+	}
+	return nil
+}
+
+func semanticVersionAtLeast(current, minimum string) (bool, error) {
+	minimum = canonicalSemanticVersion(minimum)
+	if minimum == "" {
+		return true, nil
+	}
+	current = canonicalSemanticVersion(current)
+	if !semver.IsValid(current) || !semver.IsValid(minimum) {
+		return false, errors.New("runtime versions must use semantic versioning")
+	}
+	return semver.Compare(current, minimum) >= 0, nil
+}
+
+func canonicalSemanticVersion(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.HasPrefix(value, "v") {
+		return value
+	}
+	return "v" + value
+}
+
+func browserRevisionAtLeast(current, minimum string) (bool, error) {
+	minimum = strings.TrimSpace(minimum)
+	if minimum == "" {
+		return true, nil
+	}
+	currentValue, err := parseBrowserRevision(current)
+	if err != nil {
+		return false, err
+	}
+	minimumValue, err := parseBrowserRevision(minimum)
+	if err != nil {
+		return false, err
+	}
+	return currentValue.Cmp(minimumValue) >= 0, nil
+}
+
+func parseBrowserRevision(value string) (*big.Int, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, errors.New("browser revision is empty")
+	}
+	for _, character := range value {
+		if character < '0' || character > '9' {
+			return nil, errors.New("browser revision must be a nonnegative integer")
+		}
+	}
+	revision, ok := new(big.Int).SetString(value, 10)
+	if !ok {
+		return nil, errors.New("browser revision must be a nonnegative integer")
+	}
+	return revision, nil
 }
 
 func (runtime *Runtime) workLoop(ctx context.Context, session Session) error {
@@ -613,7 +705,8 @@ func retryable(err error) bool {
 	if errors.As(err, &apiError) {
 		return apiError.Retryable || apiError.StatusCode >= 500
 	}
-	return !errors.Is(err, ErrUnauthorized) && !errors.Is(err, ErrLeaseExpired)
+	return !errors.Is(err, ErrUnauthorized) && !errors.Is(err, ErrLeaseExpired) &&
+		!errors.Is(err, ErrIncompatibleRuntime)
 }
 
 func defaultDuration(value *time.Duration, fallback time.Duration) {

@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	contracts "github.com/cineko-org/contracts/v3"
-	"github.com/cineko-org/probe/v2/internal/adapters/browserfactory"
+	browserruntime "github.com/cineko-org/probe/v2/internal/browser"
 )
 
 func TestNewBrowserRuntimeValidatesPublicConfiguration(t *testing.T) {
@@ -38,18 +38,18 @@ func TestNewBrowserRuntimeClosesFactoryOnExecutorFailure(t *testing.T) {
 		Credentials:  StaticCredential("token"),
 		Registration: contracts.RegisterProbeRequest{Kind: "client", MaxConcurrency: 1},
 	}
-	factory, err := browserfactory.NewFromEnvironment(config.DataDir)
+	factory, err := browserruntime.NewFromEnvironment(config.DataDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = newBrowserRuntime(config, browserRuntimeFactories{
-		factory:  func(string) (*browserfactory.Factory, error) { return factory, nil },
-		executor: func(*browserfactory.Factory) (*CGVExecutor, error) { return nil, errors.New("executor") },
+		factory:  func(string) (*browserruntime.Factory, error) { return factory, nil },
+		executor: func(*browserruntime.Factory) (*CGVExecutor, error) { return nil, errors.New("executor") },
 	})
 	if err == nil {
 		t.Fatal("executor failure ignored")
 	}
-	if _, err := factory.Open(context.Background(), browserfactory.Task{}); !errors.Is(err, browserfactory.ErrClosed) {
+	if _, err := factory.Open(context.Background(), browserruntime.Task{}); !errors.Is(err, browserruntime.ErrClosed) {
 		t.Fatalf("factory was not closed: %v", err)
 	}
 }

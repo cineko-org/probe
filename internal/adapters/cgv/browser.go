@@ -78,26 +78,28 @@ func DefaultBrowserConfig() BrowserConfig {
 }
 
 type Adapter struct {
-	ctx               context.Context
-	cancelContext     context.CancelFunc
-	browserContext    playwright.BrowserContext
-	page              playwright.Page
-	identitySession   playwright.CDPSession
-	stopPlaywright    func() error
-	closeOnce         sync.Once
-	lifecycleMu       sync.Mutex
-	closeHooks        []func()
-	closed            bool
-	artifactsDir      string
-	mu                sync.Mutex
-	selectedRegion    string
-	selectedTheater   string
-	blockedRequests   atomic.Uint64
-	continuedRequests atomic.Uint64
-	blockResources    bool
-	userAgent         browserUserAgent
-	userAgentMetadata userAgentBootstrapIdentity
-	webGLIdentity     webGLIdentity
+	ctx                context.Context
+	cancelContext      context.CancelFunc
+	browserContext     playwright.BrowserContext
+	page               playwright.Page
+	identitySession    playwright.CDPSession
+	stopPlaywright     func() error
+	closeOnce          sync.Once
+	lifecycleMu        sync.Mutex
+	closeHooks         []func()
+	closed             bool
+	artifactsDir       string
+	mu                 sync.Mutex
+	selectedRegion     string
+	selectedTheater    string
+	blockedRequests    atomic.Uint64
+	continuedRequests  atomic.Uint64
+	blockResources     bool
+	providerResponseMu sync.RWMutex
+	providerResponses  map[string][]byte
+	userAgent          browserUserAgent
+	userAgentMetadata  userAgentBootstrapIdentity
+	webGLIdentity      webGLIdentity
 }
 
 type BrowserPool struct {
@@ -313,7 +315,8 @@ func newAdapter(
 		stopPlaywright:  stopPlaywright, artifactsDir: config.ArtifactsDir,
 		userAgent:         selectedUserAgent,
 		userAgentMetadata: identity.metadata, webGLIdentity: identity.webGL,
-		blockResources: config.BlockResources,
+		blockResources:    config.BlockResources,
+		providerResponses: make(map[string][]byte),
 	}
 	if persistedIdentity == nil {
 		if err := saveSessionIdentity(config, persistentBrowserIdentity{
@@ -439,12 +442,66 @@ func (adapter *Adapter) installBrowserHooks(scripts []string) error {
 			_ = page.Close()
 		}
 	})
+	adapter.page.OnResponse(func(response playwright.Response) {
+		url := response.URL()
+		key := providerResponseKey(url)
+		if key == "" {
+			return
+		}
+		body, err := response.Body()
+		if err != nil || len(body) == 0 {
+			return
+		}
+		adapter.providerResponseMu.Lock()
+		adapter.providerResponses[key] = append([]byte(nil), body...)
+		adapter.providerResponseMu.Unlock()
+	})
 	for _, script := range scripts {
 		if _, err := adapter.page.Evaluate(script); err != nil {
 			return fmt.Errorf("initialize browser page: %w", err)
 		}
 	}
 	return nil
+}
+
+func providerResponseKey(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	switch {
+	case strings.HasSuffix(parsed.Path, "/api/v1/content/site/searchAllRegionAndSite"):
+		return "sites"
+	case strings.HasSuffix(parsed.Path, "/api/v1/booking/searchMovScnInfo"):
+		return "schedules"
+	default:
+		return ""
+	}
+}
+
+func (adapter *Adapter) providerResponse(key string) []byte {
+	adapter.providerResponseMu.RLock()
+	defer adapter.providerResponseMu.RUnlock()
+	return append([]byte(nil), adapter.providerResponses[key]...)
+}
+
+func (adapter *Adapter) clearProviderResponse(key string) {
+	adapter.providerResponseMu.Lock()
+	delete(adapter.providerResponses, key)
+	adapter.providerResponseMu.Unlock()
+}
+
+func (adapter *Adapter) waitForProviderResponse(key string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if len(adapter.providerResponse(key)) > 0 {
+			return nil
+		}
+		if err := adapter.wait(50 * time.Millisecond); err != nil {
+			return err
+		}
+	}
+	return fmt.Errorf("CGV provider response %q was not observed", key)
 }
 
 func readNativeBrowserLanguages(page playwright.Page) ([]string, error) {

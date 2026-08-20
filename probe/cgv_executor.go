@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	central "github.com/cineko-org/contracts/v3"
-	"github.com/cineko-org/probe/v2/internal/adapters/browserfactory"
 	"github.com/cineko-org/probe/v2/internal/adapters/cgv"
-	"github.com/cineko-org/probe/v2/internal/adapters/egress"
+	browserruntime "github.com/cineko-org/probe/v2/internal/browser"
+	"github.com/cineko-org/probe/v2/internal/egress"
 )
 
 type scheduleBrowser interface {
@@ -23,7 +24,7 @@ type catalogBrowser interface {
 }
 
 type CGVExecutor struct {
-	open    func(context.Context, browserfactory.Task) (scheduleBrowser, error)
+	open    func(context.Context, browserruntime.Task) (scheduleBrowser, error)
 	clock   func() time.Time
 	seatMap SeatMapExecutor
 }
@@ -41,12 +42,12 @@ func (executor *CGVExecutor) CaptureSeatMap(
 	return executor.seatMap.CaptureSeatMap(ctx, task)
 }
 
-func NewCGVExecutor(factory *browserfactory.Factory) (*CGVExecutor, error) {
+func NewCGVExecutor(factory *browserruntime.Factory) (*CGVExecutor, error) {
 	if factory == nil {
 		return nil, errors.New("probe browser factory is required")
 	}
 	return &CGVExecutor{
-		open: func(ctx context.Context, task browserfactory.Task) (scheduleBrowser, error) {
+		open: func(ctx context.Context, task browserruntime.Task) (scheduleBrowser, error) {
 			return factory.Open(ctx, task)
 		},
 		clock: time.Now,
@@ -64,19 +65,19 @@ func (executor *CGVExecutor) Capture(
 	if err != nil {
 		return nil, fmt.Errorf("load assignment time zone: %w", err)
 	}
-	browser, err := executor.open(ctx, browserfactory.Task{
+	browserSession, err := executor.open(ctx, browserruntime.Task{
 		Purpose: egress.PurposeScan, EgressPolicyID: task.EgressPolicyID, Headless: true,
 		Locale: task.Locale, TimeZone: task.TimeZone,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("open Probe browser: %w", err)
 	}
-	defer browser.Close()
+	defer browserSession.Close()
 	theater := cgv.ScheduleTheater{
 		ID: task.Theater.ID, ProviderID: task.Theater.ProviderID, SourceKey: task.Theater.SourceKey,
 		Region: task.Theater.Region, Name: task.Theater.Name,
 	}
-	values, err := browser.CaptureSchedules(ctx, theater, task.TargetDates)
+	values, err := browserSession.CaptureSchedules(ctx, theater, task.TargetDates)
 	if err != nil {
 		return nil, fmt.Errorf("capture CGV schedules: %w", err)
 	}
@@ -98,15 +99,15 @@ func (executor *CGVExecutor) CaptureCatalog(
 	if task.Kind != central.CapabilityCGVCatalogCapture {
 		return nil, fmt.Errorf("unsupported Probe task kind %q", task.Kind)
 	}
-	browser, err := executor.open(ctx, browserfactory.Task{
+	browserSession, err := executor.open(ctx, browserruntime.Task{
 		Purpose: egress.PurposeScan, EgressPolicyID: task.EgressPolicyID, Headless: true,
 		Locale: task.Locale, TimeZone: task.TimeZone,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("open Probe browser: %w", err)
 	}
-	defer browser.Close()
-	catalog, supported := browser.(catalogBrowser)
+	defer browserSession.Close()
+	catalog, supported := browserSession.(catalogBrowser)
 	if !supported {
 		return nil, errors.New("probe browser does not support catalog capture")
 	}
@@ -221,18 +222,54 @@ func showtimeRange(
 	endClock string,
 	location *time.Location,
 ) (time.Time, time.Time, error) {
-	startsAt, err := time.ParseInLocation(time.DateOnly+" 15:04", date+" "+startClock, location)
+	if location == nil {
+		return time.Time{}, time.Time{}, errors.New("showtime location is required")
+	}
+	day, err := time.ParseInLocation(time.DateOnly, strings.TrimSpace(date), location)
 	if err != nil {
 		return time.Time{}, time.Time{}, err
 	}
-	endsAt, err := time.ParseInLocation(time.DateOnly+" 15:04", date+" "+endClock, location)
+	startHour, startMinute, err := parseCGVClock(startClock)
 	if err != nil {
-		return time.Time{}, time.Time{}, err
+		return time.Time{}, time.Time{}, fmt.Errorf("parse start clock: %w", err)
 	}
-	if !endsAt.After(startsAt) {
+	endHour, endMinute, err := parseCGVClock(endClock)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("parse end clock: %w", err)
+	}
+	startsAt := day.Add(time.Duration(startHour)*time.Hour + time.Duration(startMinute)*time.Minute)
+	endsAt := day.Add(time.Duration(endHour)*time.Hour + time.Duration(endMinute)*time.Minute)
+	if endsAt.Equal(startsAt) {
+		return time.Time{}, time.Time{}, errors.New("showtime end must differ from start")
+	}
+	if endsAt.Before(startsAt) {
 		endsAt = endsAt.Add(24 * time.Hour)
 	}
+	const maxShowtimeDuration = 24 * time.Hour
+	if !endsAt.After(startsAt) || endsAt.Sub(startsAt) > maxShowtimeDuration {
+		return time.Time{}, time.Time{}, errors.New("showtime duration is unreasonable")
+	}
 	return startsAt, endsAt, nil
+}
+
+// parseCGVClock accepts CGV's HH:MM schedule clock. CGV uses extended-hour
+// values such as 24:30 for a show on the following calendar day while keeping
+// the requested scnYmd. Keeping the hour offset here lets the caller derive
+// the real KST weekday without changing the provider identity tuple.
+func parseCGVClock(value string) (int, int, error) {
+	value = strings.TrimSpace(value)
+	if len(value) != 5 || value[2] != ':' {
+		return 0, 0, fmt.Errorf("invalid clock %q", value)
+	}
+	hour, err := strconv.Atoi(value[:2])
+	if err != nil || hour < 0 || hour > 47 {
+		return 0, 0, fmt.Errorf("invalid hour in %q", value)
+	}
+	minute, err := strconv.Atoi(value[3:])
+	if err != nil || minute < 0 || minute > 59 {
+		return 0, 0, fmt.Errorf("invalid minute in %q", value)
+	}
+	return hour, minute, nil
 }
 
 func captureErrorCode(value string) string {

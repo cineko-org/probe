@@ -1,4 +1,4 @@
-package browserfactory
+package browser
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"sync"
 
 	"github.com/cineko-org/probe/v2/internal/adapters/cgv"
-	"github.com/cineko-org/probe/v2/internal/adapters/egress"
+	"github.com/cineko-org/probe/v2/internal/egress"
 )
 
 var ErrClosed = errors.New("browser factory is closed")
