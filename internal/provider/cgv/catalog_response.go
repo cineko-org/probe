@@ -66,7 +66,7 @@ func (adapter *Adapter) captureTheaterRows() ([]providerTheaterRow, error) {
 	seen := make(map[string]struct{})
 	for _, captured := range captures {
 		if captured.err != nil {
-			return nil, captured.err
+			return nil, adapter.handleProviderFailure(captured.err)
 		}
 		parsed, err := parseTheaterCatalogResponse(captured.body)
 		if err != nil {

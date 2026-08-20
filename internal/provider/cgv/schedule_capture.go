@@ -24,7 +24,7 @@ func (adapter *Adapter) captureProviderResponse(response playwright.Response) {
 	}
 	captured := capturedProviderResponse{path: path, status: response.Status()}
 	if captured.status < 200 || captured.status > 299 {
-		captured.err = fmt.Errorf("CGV provider response returned HTTP %d", captured.status)
+		captured.err = providerHTTPError(captured.status)
 	} else {
 		captured.body, captured.err = response.Body()
 		if captured.err == nil && len(captured.body) > maxScheduleResponseBytes {
@@ -61,7 +61,7 @@ func (adapter *Adapter) captureScheduleRows() ([]providerScheduleRow, error) {
 	seen := make(map[string]struct{})
 	for _, captured := range captures {
 		if captured.err != nil {
-			return nil, captured.err
+			return nil, adapter.handleProviderFailure(captured.err)
 		}
 		parsed, err := parseScheduleResponse(captured.body)
 		if err != nil {
@@ -77,6 +77,17 @@ func (adapter *Adapter) captureScheduleRows() ([]providerScheduleRow, error) {
 		}
 	}
 	return rows, nil
+}
+
+func providerHTTPError(status int) error {
+	switch status {
+	case 403:
+		return fmt.Errorf("%w: HTTP %d", ErrProviderAccessBlocked, status)
+	case 429:
+		return fmt.Errorf("%w: HTTP %d", ErrProviderThrottled, status)
+	default:
+		return fmt.Errorf("CGV provider response returned HTTP %d", status)
+	}
 }
 
 func (adapter *Adapter) takeProviderResponses(paths ...string) []capturedProviderResponse {

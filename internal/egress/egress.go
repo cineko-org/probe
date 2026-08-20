@@ -422,7 +422,13 @@ func (manager *Manager) acquire(parent context.Context, purpose Purpose) (*Lease
 	extend := func(ctx context.Context) error {
 		return manager.client.extendSession(ctx, session.ID, manager.sessionTTL/2)
 	}
-	return newLease(parent, proxy, release, manager.renewInterval, manager.maxRenewFailures, extend), nil
+	lease := newLease(parent, proxy, release, manager.renewInterval, manager.maxRenewFailures, extend)
+	lease.report = func(ctx context.Context, provider, signal string) error {
+		return manager.client.reportProviderFailure(
+			ctx, session.ID, provider, signal, "provider-block:"+session.ID,
+		)
+	}
+	return lease, nil
 }
 
 func (manager *Manager) acquireRandomSoxySession(ctx context.Context) (soxySession, error) {
@@ -484,19 +490,54 @@ func randomIndex(random io.Reader, size int) (int, error) {
 
 type releaseFunc func(context.Context) error
 type extendFunc func(context.Context) error
+type reportProviderFailureFunc func(context.Context, string, string) error
+
+const (
+	// ProviderCGV identifies CGV at the Soxy provider-failure boundary.
+	ProviderCGV = "cgv"
+	// SignalAccessBlocked means the provider rejected this egress identity.
+	SignalAccessBlocked = "access_blocked"
+)
+
+var ErrEgressQuarantined = errors.New("egress session was quarantined")
 
 // Lease represents one bounded outbound-network reservation.
 type Lease struct {
-	proxy     Proxy
-	ctx       context.Context
-	cancel    context.CancelCauseFunc
-	release   releaseFunc
-	extend    extendFunc
-	interval  time.Duration
-	maxErrors int
-	done      chan struct{}
-	closeOnce sync.Once
-	closeErr  error
+	proxy       Proxy
+	ctx         context.Context
+	cancel      context.CancelCauseFunc
+	release     releaseFunc
+	extend      extendFunc
+	report      reportProviderFailureFunc
+	interval    time.Duration
+	maxErrors   int
+	done        chan struct{}
+	closeOnce   sync.Once
+	closeErr    error
+	reportMu    sync.Mutex
+	quarantined bool
+}
+
+// ReportProviderFailure retires a managed Soxy lease exactly once. Direct and
+// statically configured proxy leases have no remote inventory to quarantine.
+func (lease *Lease) ReportProviderFailure(ctx context.Context, provider, signal string) error {
+	if lease == nil || lease.report == nil {
+		return nil
+	}
+	lease.reportMu.Lock()
+	defer lease.reportMu.Unlock()
+	if lease.quarantined {
+		return nil
+	}
+	reportContext, cancel := context.WithTimeout(ctx, 10*time.Second)
+	err := lease.report(reportContext, provider, signal)
+	cancel()
+	if err != nil {
+		return err
+	}
+	lease.quarantined = true
+	lease.cancel(ErrEgressQuarantined)
+	return nil
 }
 
 func newLease(

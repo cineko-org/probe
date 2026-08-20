@@ -573,6 +573,102 @@ func TestManagedLeaseRenewalFailureCancelsTask(t *testing.T) {
 	}
 }
 
+func TestManagedLeaseReportsProviderBlockAndQuarantinesSession(t *testing.T) {
+	t.Parallel()
+	var reports atomic.Int64
+	var releases atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/sessions":
+			writeTestJSON(writer, http.StatusCreated, readySession("blocked-session"))
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/sessions/blocked-session/provider-failures":
+			reports.Add(1)
+			if got := request.Header.Get("Idempotency-Key"); got != "provider-block:blocked-session" {
+				t.Errorf("Idempotency-Key = %q", got)
+			}
+			var payload struct {
+				Provider string `json:"provider"`
+				Signal   string `json:"signal"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Errorf("decode provider failure: %v", err)
+			}
+			if payload.Provider != ProviderCGV || payload.Signal != SignalAccessBlocked {
+				t.Errorf("provider failure = %+v", payload)
+			}
+			writeTestJSON(writer, http.StatusAccepted, map[string]any{"action": "quarantined"})
+		case request.Method == http.MethodDelete && request.URL.Path == "/v1/sessions/blocked-session":
+			releases.Add(1)
+			writer.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	manager, err := New(Config{SoxyURL: server.URL, SoxyToken: "token", SessionTTL: 5 * time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := manager.Acquire(context.Background(), PurposeSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lease.ReportProviderFailure(context.Background(), ProviderCGV, SignalAccessBlocked); err != nil {
+		t.Fatal(err)
+	}
+	if err := lease.ReportProviderFailure(context.Background(), ProviderCGV, SignalAccessBlocked); err != nil {
+		t.Fatal(err)
+	}
+	if !errors.Is(context.Cause(lease.Context()), ErrEgressQuarantined) {
+		t.Fatalf("lease cause = %v", context.Cause(lease.Context()))
+	}
+	if err := lease.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if reports.Load() != 1 || releases.Load() != 1 {
+		t.Fatalf("reports = %d, releases = %d", reports.Load(), releases.Load())
+	}
+}
+
+func TestLeaseProviderFailureReportingBoundaries(t *testing.T) {
+	t.Parallel()
+	var nilLease *Lease
+	if err := nilLease.ReportProviderFailure(context.Background(), ProviderCGV, SignalAccessBlocked); err != nil {
+		t.Fatal(err)
+	}
+	direct := newLease(context.Background(), Proxy{}, nil, 0, 0)
+	if err := direct.ReportProviderFailure(context.Background(), ProviderCGV, SignalAccessBlocked); err != nil {
+		t.Fatal(err)
+	}
+	if err := direct.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	want := errors.New("report unavailable")
+	attempts := 0
+	managed := newLease(context.Background(), Proxy{}, nil, 0, 0)
+	managed.report = func(context.Context, string, string) error {
+		attempts++
+		if attempts == 1 {
+			return want
+		}
+		return nil
+	}
+	if err := managed.ReportProviderFailure(context.Background(), ProviderCGV, SignalAccessBlocked); !errors.Is(err, want) {
+		t.Fatalf("first ReportProviderFailure() error = %v, want %v", err, want)
+	}
+	if err := managed.ReportProviderFailure(context.Background(), ProviderCGV, SignalAccessBlocked); err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 2 || !errors.Is(context.Cause(managed.Context()), ErrEgressQuarantined) {
+		t.Fatalf("attempts = %d, cause = %v", attempts, context.Cause(managed.Context()))
+	}
+	if err := managed.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestManagedSessionValidationAndCapacity(t *testing.T) {
 	t.Parallel()
 	t.Run("no slots", func(t *testing.T) {
