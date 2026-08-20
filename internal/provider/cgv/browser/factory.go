@@ -204,6 +204,12 @@ func (factory *Factory) openInSlot(
 		return nil, err
 	}
 	configuration := browserConfigForTask(factory.base, task)
+	configuration.ProviderFailureHandler = func(reportContext context.Context, providerErr error) error {
+		if !errors.Is(providerErr, cgv.ErrProviderAccessBlocked) {
+			return nil
+		}
+		return lease.ReportProviderFailure(reportContext, egress.ProviderCGV, egress.SignalAccessBlocked)
+	}
 	profileDir, cleanupProfile, err := factory.profileForTask(task, slot)
 	if err != nil {
 		return nil, err

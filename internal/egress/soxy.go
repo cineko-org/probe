@@ -223,12 +223,45 @@ func (client *soxyClient) releaseSession(ctx context.Context, sessionID string) 
 	return err
 }
 
+func (client *soxyClient) reportProviderFailure(
+	ctx context.Context,
+	sessionID string,
+	provider string,
+	signal string,
+	idempotencyKey string,
+) error {
+	payload := struct {
+		Provider string `json:"provider"`
+		Signal   string `json:"signal"`
+	}{Provider: provider, Signal: signal}
+	return client.requestWithHeaders(
+		ctx,
+		http.MethodPost,
+		"/v1/sessions/"+url.PathEscape(sessionID)+"/provider-failures",
+		payload,
+		http.StatusAccepted,
+		nil,
+		map[string]string{"Idempotency-Key": idempotencyKey},
+	)
+}
+
 func (client *soxyClient) request(
 	ctx context.Context,
 	method, path string,
 	payload any,
 	wantStatus int,
 	destination any,
+) error {
+	return client.requestWithHeaders(ctx, method, path, payload, wantStatus, destination, nil)
+}
+
+func (client *soxyClient) requestWithHeaders(
+	ctx context.Context,
+	method, path string,
+	payload any,
+	wantStatus int,
+	destination any,
+	headers map[string]string,
 ) error {
 	var body io.Reader
 	if payload != nil {
@@ -244,6 +277,9 @@ func (client *soxyClient) request(
 	}
 	request.Header.Set("Authorization", "Bearer "+client.token)
 	request.Header.Set("Accept", "application/json")
+	for key, value := range headers {
+		request.Header.Set(key, value)
+	}
 	if payload != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}

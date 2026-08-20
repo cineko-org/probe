@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -97,9 +96,6 @@ func (adapter *Adapter) CaptureSchedules(
 		for _, entry := range entries {
 			capture.Showtimes = append(capture.Showtimes, entry.Showtime)
 		}
-		sort.Slice(capture.Showtimes, func(i, j int) bool {
-			return capture.Showtimes[i].ID < capture.Showtimes[j].ID
-		})
 		result = append(result, capture)
 	}
 	return result, nil

@@ -26,21 +26,28 @@ var (
 	ErrAuthenticationRequired = errors.New("CGV authentication is required")
 	ErrUIContractChanged      = errors.New("CGV UI contract changed")
 	ErrCaptchaRequired        = errors.New("manual CAPTCHA entry is required")
+	ErrProviderAccessBlocked  = errors.New("CGV blocked the current network identity")
+	ErrProviderThrottled      = errors.New("CGV temporarily rate limited requests")
 )
 
+// ProviderFailureHandler reports a provider-side network failure to the
+// component that owns the current egress lease.
+type ProviderFailureHandler func(context.Context, error) error
+
 type BrowserConfig struct {
-	ChromePath     string
-	ProfileDir     string
-	ArtifactsDir   string
-	Headless       bool
-	StartMinimized bool
-	RestoreSession bool
-	BlockResources bool
-	UserAgentMode  UserAgentMode
-	Locale         string
-	TimeZone       string
-	Proxy          *BrowserProxy
-	Capacity       int
+	ChromePath             string
+	ProfileDir             string
+	ArtifactsDir           string
+	Headless               bool
+	StartMinimized         bool
+	RestoreSession         bool
+	BlockResources         bool
+	UserAgentMode          UserAgentMode
+	Locale                 string
+	TimeZone               string
+	Proxy                  *BrowserProxy
+	Capacity               int
+	ProviderFailureHandler ProviderFailureHandler
 }
 
 // BrowserProxy is the proxy identity assigned to one browser process. Secrets
@@ -78,28 +85,39 @@ func DefaultBrowserConfig() BrowserConfig {
 }
 
 type Adapter struct {
-	ctx                context.Context
-	cancelContext      context.CancelFunc
-	browserContext     playwright.BrowserContext
-	page               playwright.Page
-	identitySession    playwright.CDPSession
-	stopPlaywright     func() error
-	closeOnce          sync.Once
-	lifecycleMu        sync.Mutex
-	closeHooks         []func()
-	closed             bool
-	artifactsDir       string
-	mu                 sync.Mutex
-	selectedRegion     string
-	selectedTheater    string
-	blockedRequests    atomic.Uint64
-	continuedRequests  atomic.Uint64
-	blockResources     bool
-	scheduleResponseMu sync.Mutex
-	providerResponses  []capturedProviderResponse
-	userAgent          browserUserAgent
-	userAgentMetadata  userAgentBootstrapIdentity
-	webGLIdentity      webGLIdentity
+	ctx                    context.Context
+	cancelContext          context.CancelFunc
+	browserContext         playwright.BrowserContext
+	page                   playwright.Page
+	identitySession        playwright.CDPSession
+	stopPlaywright         func() error
+	closeOnce              sync.Once
+	lifecycleMu            sync.Mutex
+	closeHooks             []func()
+	closed                 bool
+	artifactsDir           string
+	mu                     sync.Mutex
+	selectedRegion         string
+	selectedTheater        string
+	blockedRequests        atomic.Uint64
+	continuedRequests      atomic.Uint64
+	blockResources         bool
+	scheduleResponseMu     sync.Mutex
+	providerResponses      []capturedProviderResponse
+	providerFailureHandler ProviderFailureHandler
+	userAgent              browserUserAgent
+	userAgentMetadata      userAgentBootstrapIdentity
+	webGLIdentity          webGLIdentity
+}
+
+func (adapter *Adapter) handleProviderFailure(err error) error {
+	if err == nil || adapter == nil || adapter.providerFailureHandler == nil {
+		return err
+	}
+	if reportErr := adapter.providerFailureHandler(adapter.ctx, err); reportErr != nil {
+		return errors.Join(err, fmt.Errorf("report CGV provider failure: %w", reportErr))
+	}
+	return err
 }
 
 type BrowserPool struct {
@@ -315,7 +333,8 @@ func newAdapter(
 		stopPlaywright:  stopPlaywright, artifactsDir: config.ArtifactsDir,
 		userAgent:         selectedUserAgent,
 		userAgentMetadata: identity.metadata, webGLIdentity: identity.webGL,
-		blockResources: config.BlockResources,
+		blockResources:         config.BlockResources,
+		providerFailureHandler: config.ProviderFailureHandler,
 	}
 	if persistedIdentity == nil {
 		if err := saveSessionIdentity(config, persistentBrowserIdentity{
@@ -702,10 +721,14 @@ func (adapter *Adapter) navigate(url string) error {
 	if err := adapter.ctx.Err(); err != nil {
 		return err
 	}
-	if _, err := adapter.page.Goto(url, playwright.PageGotoOptions{
+	response, err := adapter.page.Goto(url, playwright.PageGotoOptions{
 		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
-	}); err != nil {
+	})
+	if err != nil {
 		return err
+	}
+	if response != nil && (response.Status() < 200 || response.Status() > 399) {
+		return adapter.handleProviderFailure(providerHTTPError(response.Status()))
 	}
 	if err := adapter.page.Locator("body").WaitFor(playwright.LocatorWaitForOptions{
 		State: playwright.WaitForSelectorStateAttached,
