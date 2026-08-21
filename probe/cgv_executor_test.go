@@ -230,6 +230,37 @@ func TestCGVExecutorDelegatesSeatMapCapture(t *testing.T) {
 	}
 }
 
+func TestCGVExecutorCapturesSeatMapWithStandaloneBrowser(t *testing.T) {
+	t.Parallel()
+	want := &central.SeatMapVersion{ID: "seat_map"}
+	browser := &fakeScheduleBrowser{seatMap: want}
+	executor := &CGVExecutor{open: func(context.Context, cgvbrowser.Task) (scheduleBrowser, error) {
+		return browser, nil
+	}}
+	value, err := executor.CaptureSeatMap(context.Background(), central.AssignmentTask{
+		Kind: central.CapabilityCGVSeatMapCapture,
+	})
+	if err != nil || value != want || browser.seatMapCalls != 1 || !browser.closed {
+		t.Fatalf("standalone seat-map capture = %+v, error %v, calls %d, closed %v", value, err, browser.seatMapCalls, browser.closed)
+	}
+	openFailure := &CGVExecutor{open: func(context.Context, cgvbrowser.Task) (scheduleBrowser, error) {
+		return nil, errIO
+	}}
+	if _, err := openFailure.CaptureSeatMap(context.Background(), central.AssignmentTask{
+		Kind: central.CapabilityCGVSeatMapCapture,
+	}); !errors.Is(err, errIO) {
+		t.Fatalf("standalone browser open error = %v", err)
+	}
+	unsupported := &CGVExecutor{open: func(context.Context, cgvbrowser.Task) (scheduleBrowser, error) {
+		return &scheduleOnlyBrowser{}, nil
+	}}
+	if _, err := unsupported.CaptureSeatMap(context.Background(), central.AssignmentTask{
+		Kind: central.CapabilityCGVSeatMapCapture,
+	}); err == nil {
+		t.Fatal("schedule-only browser accepted for seat-map capture")
+	}
+}
+
 type fakeSeatMapExecutor struct {
 	seatMap *central.SeatMapVersion
 	calls   int
@@ -270,10 +301,12 @@ func canonicalTestShowtime(value cgv.ScheduleShowtime) cgv.ScheduleShowtime {
 }
 
 type fakeScheduleBrowser struct {
-	captures []cgv.ScheduleCapture
-	catalog  cgv.CatalogCapture
-	err      error
-	closed   bool
+	captures     []cgv.ScheduleCapture
+	catalog      cgv.CatalogCapture
+	seatMap      *central.SeatMapVersion
+	err          error
+	closed       bool
+	seatMapCalls int
 }
 
 func (browser *fakeScheduleBrowser) CaptureSchedules(
@@ -288,6 +321,14 @@ func (browser *fakeScheduleBrowser) Close() { browser.closed = true }
 
 func (browser *fakeScheduleBrowser) CaptureCatalog(context.Context) (cgv.CatalogCapture, error) {
 	return browser.catalog, browser.err
+}
+
+func (browser *fakeScheduleBrowser) CaptureSeatMap(
+	context.Context,
+	central.AssignmentTask,
+) (*central.SeatMapVersion, error) {
+	browser.seatMapCalls++
+	return browser.seatMap, browser.err
 }
 
 type scheduleOnlyBrowser struct{}
