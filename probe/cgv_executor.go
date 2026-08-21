@@ -22,6 +22,10 @@ type catalogBrowser interface {
 	CaptureCatalog(context.Context) (cgv.CatalogCapture, error)
 }
 
+type seatMapBrowser interface {
+	CaptureSeatMap(context.Context, central.AssignmentTask) (*central.SeatMapVersion, error)
+}
+
 type CGVExecutor struct {
 	open    func(context.Context, cgvbrowser.Task) (scheduleBrowser, error)
 	clock   func() time.Time
@@ -35,10 +39,25 @@ func (executor *CGVExecutor) CaptureSeatMap(
 	if task.Kind != central.CapabilityCGVSeatMapCapture {
 		return nil, fmt.Errorf("unsupported Probe task kind %q", task.Kind)
 	}
-	if executor.seatMap == nil {
-		return nil, errors.New("probe executor does not support seat-map capture")
+	if executor.seatMap != nil {
+		return executor.seatMap.CaptureSeatMap(ctx, task)
 	}
-	return executor.seatMap.CaptureSeatMap(ctx, task)
+	if executor.open == nil {
+		return nil, errors.New("probe browser factory is unavailable")
+	}
+	browserSession, err := executor.open(ctx, cgvbrowser.Task{
+		Purpose: egress.PurposeScan, EgressPolicyID: task.EgressPolicyID, Headless: true,
+		Locale: task.Locale, TimeZone: task.TimeZone,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("open Probe browser: %w", err)
+	}
+	defer browserSession.Close()
+	capture, supported := browserSession.(seatMapBrowser)
+	if !supported {
+		return nil, errors.New("probe browser does not support seat-map capture")
+	}
+	return capture.CaptureSeatMap(ctx, task)
 }
 
 func NewCGVExecutor(factory *cgvbrowser.Factory) (*CGVExecutor, error) {

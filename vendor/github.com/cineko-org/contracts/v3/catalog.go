@@ -24,3 +24,9 @@ func CatalogID(providerID, kind, sourceKey string) string {
 func SeatMapVersionID(auditoriumID, layoutHash string) string {
 	return CatalogID("catalog", "seat-map", strings.TrimSpace(auditoriumID)+"\x00"+strings.TrimSpace(layoutHash))
 }
+
+// SeatID derives the stable identity used for the same physical seat across
+// independent Probe and Client observations of an auditorium layout.
+func SeatID(auditoriumID, label string) string {
+	return CatalogID("catalog", "seat", strings.TrimSpace(auditoriumID)+"\x00"+strings.ToUpper(strings.TrimSpace(label)))
+}

@@ -42,6 +42,7 @@ func TestLoadContainerConfig(t *testing.T) {
 		!reflect.DeepEqual(config.registration.Capabilities, []string{
 			central.CapabilityCGVCatalogCapture,
 			central.CapabilityCGVScheduleCapture,
+			central.CapabilityCGVSeatMapCapture,
 		}) ||
 		config.registration.Runtime.Platform != runtime.GOOS || config.registration.Runtime.Arch != runtime.GOARCH {
 		t.Fatalf("container config = %+v", config)

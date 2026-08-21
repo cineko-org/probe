@@ -16,6 +16,7 @@ const (
 	scheduleResponsePath         = "/api/v1/booking/searchMovScnInfo"
 	legacyScheduleResponsePath   = "/cnm/atkt/searchMovScnInfo"
 	theaterCatalogResponsePath   = "/api/v1/content/site/searchAllRegionAndSite"
+	seatMapResponsePath          = "/api/v1/booking/searchIfSeatData"
 	maxScheduleResponseBytes     = 8 << 20
 	maxCapturedProviderResponses = 32
 )
@@ -212,7 +213,7 @@ func providerResponsePath(rawURL string) (string, bool) {
 		return "", false
 	}
 	switch parsed.Path {
-	case scheduleResponsePath, legacyScheduleResponsePath, theaterCatalogResponsePath:
+	case scheduleResponsePath, legacyScheduleResponsePath, theaterCatalogResponsePath, seatMapResponsePath:
 		return parsed.Path, true
 	default:
 		return "", false

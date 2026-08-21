@@ -47,13 +47,17 @@ func loadConfig(stdin io.Reader) (applicationConfig, error) {
 	if err != nil {
 		return applicationConfig{}, err
 	}
+	capabilities := []string{
+		central.CapabilityCGVCatalogCapture,
+		central.CapabilityCGVScheduleCapture,
+	}
+	if mode == "container" {
+		capabilities = append(capabilities, central.CapabilityCGVSeatMapCapture)
+	}
 	registration := central.RegisterProbeRequest{
 		InstallationID: installationID, Kind: mode,
-		NetworkHint: strings.TrimSpace(os.Getenv("CINEKO_PROBE_NETWORK_HINT")),
-		Capabilities: []string{
-			central.CapabilityCGVCatalogCapture,
-			central.CapabilityCGVScheduleCapture,
-		}, MaxConcurrency: 1,
+		NetworkHint:  strings.TrimSpace(os.Getenv("CINEKO_PROBE_NETWORK_HINT")),
+		Capabilities: capabilities, MaxConcurrency: 1,
 		Runtime: central.Runtime{
 			Version: version, Protocol: central.ProtocolVersion, BrowserRevision: browserRevision,
 			Platform: runtime.GOOS, Arch: runtime.GOARCH,
