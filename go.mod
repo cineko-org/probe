@@ -6,7 +6,7 @@ toolchain go1.26.6
 
 require (
 	buf.build/go/protovalidate v1.3.0
-	github.com/cineko-org/contracts v0.0.0-20260821154125-38bf9ee32ce6
+	github.com/cineko-org/contracts v0.0.0-20260821175959-3ce1fdcc5641
 	github.com/mxschmitt/playwright-go v0.6201.1
 	go.opentelemetry.io/contrib/bridges/otelslog v0.20.0
 	go.opentelemetry.io/otel v1.45.0
