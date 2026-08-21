@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.5.0](https://github.com/cineko-org/probe/compare/v2.4.0...v2.5.0) (2026-08-21)
+
+
+### Features
+
+* capture canonical seat maps ([#13](https://github.com/cineko-org/probe/issues/13)) ([f4ec7ad](https://github.com/cineko-org/probe/commit/f4ec7adb5c9e8e1a5aea2177fb72cebd97a4647f))
+
+
+### Bug Fixes
+
+* skip duplicate release validation ([#15](https://github.com/cineko-org/probe/issues/15)) ([bbd641a](https://github.com/cineko-org/probe/commit/bbd641adeb5ad557adae6ca14c1200794e314e99))
+
 ## [2.4.0](https://github.com/cineko-org/probe/compare/v2.3.1...v2.4.0) (2026-08-20)
 
 
