@@ -60,14 +60,14 @@ type Theater struct {
 }
 
 type AssignmentTask struct {
-	Kind           string      `json:"kind"`
-	Theater        Theater     `json:"theater"`
-	Auditorium     *Auditorium `json:"auditorium,omitempty"`
-	Showtime       *Showtime   `json:"showtime,omitempty"`
-	TargetDates    []string    `json:"targetDates"`
-	Locale         string      `json:"locale"`
-	TimeZone       string      `json:"timeZone"`
-	EgressPolicyID string      `json:"egressPolicyId"`
+	Kind           string         `json:"kind"`
+	Theater        Theater        `json:"theater"`
+	Auditorium     *Auditorium    `json:"auditorium,omitempty"`
+	Showtime       *Showtime      `json:"showtime,omitempty"`
+	TargetDates    []string       `json:"targetDates"`
+	Locale         string         `json:"locale"`
+	TimeZone       string         `json:"timeZone"`
+	EgressPolicyID EgressPolicyID `json:"egressPolicyId"`
 }
 
 type ClaimAssignmentResponse struct {

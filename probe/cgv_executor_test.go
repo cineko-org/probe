@@ -130,6 +130,15 @@ func TestCGVExecutorFailuresAndHelpers(t *testing.T) {
 		t.Fatal("unsupported catalog task accepted")
 	}
 	task = testAssignmentTask()
+	task.EgressPolicyID = ""
+	if _, err := executor.Capture(context.Background(), task); !errors.Is(err, central.ErrUnsupportedEgressPolicy) {
+		t.Fatalf("missing schedule egress policy error = %v", err)
+	}
+	task.Kind = central.CapabilityCGVCatalogCapture
+	if _, err := executor.CaptureCatalog(context.Background(), task); !errors.Is(err, central.ErrUnsupportedEgressPolicy) {
+		t.Fatalf("missing catalog egress policy error = %v", err)
+	}
+	task = testAssignmentTask()
 	task.Theater.ProviderID = "other"
 	if _, err := executor.Capture(context.Background(), task); err == nil {
 		t.Fatal("non-CGV theater accepted")
@@ -216,7 +225,9 @@ func TestCGVExecutorDelegatesSeatMapCapture(t *testing.T) {
 	seatMap := &central.SeatMapVersion{ID: "seat_map"}
 	delegate := &fakeSeatMapExecutor{seatMap: seatMap}
 	executor := &CGVExecutor{seatMap: delegate}
-	task := central.AssignmentTask{Kind: central.CapabilityCGVSeatMapCapture}
+	task := central.AssignmentTask{
+		Kind: central.CapabilityCGVSeatMapCapture, EgressPolicyID: central.EgressPolicyScanDefault,
+	}
 	value, err := executor.CaptureSeatMap(context.Background(), task)
 	if err != nil || value != seatMap || delegate.calls != 1 {
 		t.Fatalf("seat-map delegation = %+v, %v, calls = %d", value, err, delegate.calls)
@@ -224,6 +235,11 @@ func TestCGVExecutorDelegatesSeatMapCapture(t *testing.T) {
 	if _, err := (&CGVExecutor{}).CaptureSeatMap(context.Background(), task); err == nil {
 		t.Fatal("missing seat-map executor accepted")
 	}
+	task.EgressPolicyID = ""
+	if _, err := executor.CaptureSeatMap(context.Background(), task); !errors.Is(err, central.ErrUnsupportedEgressPolicy) {
+		t.Fatalf("missing seat-map egress policy error = %v", err)
+	}
+	task.EgressPolicyID = central.EgressPolicyScanDefault
 	task.Kind = central.CapabilityCGVScheduleCapture
 	if _, err := executor.CaptureSeatMap(context.Background(), task); err == nil {
 		t.Fatal("wrong seat-map task kind accepted")
@@ -238,7 +254,7 @@ func TestCGVExecutorCapturesSeatMapWithStandaloneBrowser(t *testing.T) {
 		return browser, nil
 	}}
 	value, err := executor.CaptureSeatMap(context.Background(), central.AssignmentTask{
-		Kind: central.CapabilityCGVSeatMapCapture,
+		Kind: central.CapabilityCGVSeatMapCapture, EgressPolicyID: central.EgressPolicyScanDefault,
 	})
 	if err != nil || value != want || browser.seatMapCalls != 1 || !browser.closed {
 		t.Fatalf("standalone seat-map capture = %+v, error %v, calls %d, closed %v", value, err, browser.seatMapCalls, browser.closed)
@@ -247,7 +263,7 @@ func TestCGVExecutorCapturesSeatMapWithStandaloneBrowser(t *testing.T) {
 		return nil, errIO
 	}}
 	if _, err := openFailure.CaptureSeatMap(context.Background(), central.AssignmentTask{
-		Kind: central.CapabilityCGVSeatMapCapture,
+		Kind: central.CapabilityCGVSeatMapCapture, EgressPolicyID: central.EgressPolicyScanDefault,
 	}); !errors.Is(err, errIO) {
 		t.Fatalf("standalone browser open error = %v", err)
 	}
@@ -255,7 +271,7 @@ func TestCGVExecutorCapturesSeatMapWithStandaloneBrowser(t *testing.T) {
 		return &scheduleOnlyBrowser{}, nil
 	}}
 	if _, err := unsupported.CaptureSeatMap(context.Background(), central.AssignmentTask{
-		Kind: central.CapabilityCGVSeatMapCapture,
+		Kind: central.CapabilityCGVSeatMapCapture, EgressPolicyID: central.EgressPolicyScanDefault,
 	}); err == nil {
 		t.Fatal("schedule-only browser accepted for seat-map capture")
 	}

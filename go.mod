@@ -5,7 +5,7 @@ go 1.26
 toolchain go1.26.6
 
 require (
-	github.com/cineko-org/contracts/v3 v3.4.0
+	github.com/cineko-org/contracts/v3 v3.4.1
 	github.com/mxschmitt/playwright-go v0.6201.1
 	go.opentelemetry.io/contrib/bridges/otelslog v0.20.0
 	go.opentelemetry.io/otel v1.45.0
