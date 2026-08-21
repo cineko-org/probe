@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.1](https://github.com/cineko-org/probe/compare/v2.5.0...v2.5.1) (2026-08-21)
+
+
+### Bug Fixes
+
+* validate assignment egress policy ([#16](https://github.com/cineko-org/probe/issues/16)) ([03ea2d1](https://github.com/cineko-org/probe/commit/03ea2d1a8a79358a09ecc301a0646ec35f2f9525))
+
 ## [2.5.0](https://github.com/cineko-org/probe/compare/v2.4.0...v2.5.0) (2026-08-21)
 
 
