@@ -12,22 +12,36 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Validate Release Please metadata
+        if: startsWith(github.head_ref, 'release-please--')
+        run: >-
+          bash scripts/verify-release-please-pr.sh
+          '${{ github.event.pull_request.base.sha }}'
+          '${{ github.event.pull_request.head.sha }}'
       - uses: actions/setup-go@v7
+        if: ${{ !startsWith(github.head_ref, 'release-please--') }}
         with:
           go-version-file: go.mod
           cache: true
       - uses: actions/setup-node@v7
+        if: ${{ !startsWith(github.head_ref, 'release-please--') }}
         with:
           node-version-file: .nvmrc
       - name: Use the canonical Ubuntu mirror
+        if: ${{ !startsWith(github.head_ref, 'release-please--') }}
         run: sudo sed -i -E 's|https?://[^[:space:]]+/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/apt-mirrors.txt
       - name: Install pinned Playwright runtime
+        if: ${{ !startsWith(github.head_ref, 'release-please--') }}
         run: |
           playwright_go_version="$(bash scripts/playwright-version.sh go)"
           go run "github.com/mxschmitt/playwright-go/cmd/playwright@${playwright_go_version}" install --with-deps chromium
-      - run: make check
+      - if: ${{ !startsWith(github.head_ref, 'release-please--') }}
+        run: make check
 
   image:
+    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
