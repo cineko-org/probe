@@ -39,16 +39,16 @@ func (executor *CGVExecutor) CaptureSeatMap(
 	if task.Kind != central.CapabilityCGVSeatMapCapture {
 		return nil, fmt.Errorf("unsupported Probe task kind %q", task.Kind)
 	}
+	if err := central.RequireEgressPolicy(task.EgressPolicyID); err != nil {
+		return nil, err
+	}
 	if executor.seatMap != nil {
 		return executor.seatMap.CaptureSeatMap(ctx, task)
 	}
 	if executor.open == nil {
 		return nil, errors.New("probe browser factory is unavailable")
 	}
-	browserSession, err := executor.open(ctx, cgvbrowser.Task{
-		Purpose: egress.PurposeScan, EgressPolicyID: task.EgressPolicyID, Headless: true,
-		Locale: task.Locale, TimeZone: task.TimeZone,
-	})
+	browserSession, err := executor.open(ctx, scanBrowserTask(task))
 	if err != nil {
 		return nil, fmt.Errorf("open Probe browser: %w", err)
 	}
@@ -83,10 +83,7 @@ func (executor *CGVExecutor) Capture(
 	if err != nil {
 		return nil, fmt.Errorf("load assignment time zone: %w", err)
 	}
-	browserSession, err := executor.open(ctx, cgvbrowser.Task{
-		Purpose: egress.PurposeScan, EgressPolicyID: task.EgressPolicyID, Headless: true,
-		Locale: task.Locale, TimeZone: task.TimeZone,
-	})
+	browserSession, err := executor.open(ctx, scanBrowserTask(task))
 	if err != nil {
 		return nil, fmt.Errorf("open Probe browser: %w", err)
 	}
@@ -117,10 +114,10 @@ func (executor *CGVExecutor) CaptureCatalog(
 	if task.Kind != central.CapabilityCGVCatalogCapture {
 		return nil, fmt.Errorf("unsupported Probe task kind %q", task.Kind)
 	}
-	browserSession, err := executor.open(ctx, cgvbrowser.Task{
-		Purpose: egress.PurposeScan, EgressPolicyID: task.EgressPolicyID, Headless: true,
-		Locale: task.Locale, TimeZone: task.TimeZone,
-	})
+	if err := central.RequireEgressPolicy(task.EgressPolicyID); err != nil {
+		return nil, err
+	}
+	browserSession, err := executor.open(ctx, scanBrowserTask(task))
 	if err != nil {
 		return nil, fmt.Errorf("open Probe browser: %w", err)
 	}
@@ -160,6 +157,9 @@ func validateScheduleTask(task central.AssignmentTask) error {
 	if task.Kind != central.CapabilityCGVScheduleCapture {
 		return fmt.Errorf("unsupported Probe task kind %q", task.Kind)
 	}
+	if err := central.RequireEgressPolicy(task.EgressPolicyID); err != nil {
+		return err
+	}
 	theater := task.Theater
 	if theater.ProviderID != central.ProviderCGV || strings.TrimSpace(theater.SourceKey) == "" ||
 		strings.TrimSpace(theater.Region) == "" || strings.TrimSpace(theater.Name) == "" {
@@ -169,6 +169,13 @@ func validateScheduleTask(task central.AssignmentTask) error {
 		return errors.New("CGV schedule task theater ID is not canonical")
 	}
 	return nil
+}
+
+func scanBrowserTask(task central.AssignmentTask) cgvbrowser.Task {
+	return cgvbrowser.Task{
+		Purpose: egress.PurposeScan, EgressPolicyID: string(task.EgressPolicyID), Headless: true,
+		Locale: task.Locale, TimeZone: task.TimeZone,
+	}
 }
 
 func (executor *CGVExecutor) convertCapture(

@@ -7,7 +7,14 @@ import (
 	"time"
 )
 
-var ErrUnsupportedProtocol = errors.New("unsupported Cineko protocol")
+var (
+	ErrUnsupportedProtocol     = errors.New("unsupported Cineko protocol")
+	ErrUnsupportedEgressPolicy = errors.New("unsupported egress policy")
+)
+
+// EgressPolicyID is the versioned policy selector carried by assignment tasks.
+// Network endpoints and credentials remain private to each Probe.
+type EgressPolicyID string
 
 const (
 	ProtocolVersion              = 3
@@ -24,6 +31,7 @@ const (
 	CapabilityCGVCatalogCapture  = "cgv.catalog.capture.v1"
 	CapabilityCGVSeatMapCapture  = "cgv.seat-map.capture.v1"
 	CatalogSchemaVersion         = 1
+	EgressPolicyScanDefault      = EgressPolicyID("scan_default")
 )
 
 var supportedCapabilities = map[string]struct{}{
@@ -46,6 +54,15 @@ func ProtocolHeaderValue() string {
 func RequireProtocol(version int) error {
 	if version != ProtocolVersion {
 		return fmt.Errorf("%w: %d", ErrUnsupportedProtocol, version)
+	}
+	return nil
+}
+
+// RequireEgressPolicy rejects omitted and unknown assignment policies at the
+// protocol boundary, before a Probe opens a browser.
+func RequireEgressPolicy(policy EgressPolicyID) error {
+	if policy != EgressPolicyScanDefault {
+		return fmt.Errorf("%w: %q", ErrUnsupportedEgressPolicy, policy)
 	}
 	return nil
 }

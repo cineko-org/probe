@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.4.1](https://github.com/cineko-org/contracts/compare/v3.4.0...v3.4.1) (2026-08-21)
+
+
+### Bug Fixes
+
+* validate assignment egress policy ([#8](https://github.com/cineko-org/contracts/issues/8)) ([9e8e8fd](https://github.com/cineko-org/contracts/commit/9e8e8fd65a2f77a48d6984c537c0d677570e90b7))
+
 ## [3.4.0](https://github.com/cineko-org/contracts/compare/v3.3.0...v3.4.0) (2026-08-21)
 
 
