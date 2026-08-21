@@ -138,7 +138,6 @@ jobs:
             --request POST \
             --header "Authorization: Bearer ${RELEASE_PUBLISH_TOKEN}" \
             --header "Content-Type: application/json" \
-            --header "X-Cineko-Protocol: 3" \
             --data "$payload" \
             "${CENTRAL_URL%/}/v1/release-registry/probe"
 

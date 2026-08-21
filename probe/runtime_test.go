@@ -9,22 +9,20 @@ import (
 	"testing"
 	"time"
 
-	central "github.com/cineko-org/contracts/v3"
+	catalogpb "github.com/cineko-org/contracts/gen/go/cineko/catalog"
+	observationpb "github.com/cineko-org/contracts/gen/go/cineko/observation"
+	probepb "github.com/cineko-org/contracts/gen/go/cineko/probe"
+	seatmappb "github.com/cineko-org/contracts/gen/go/cineko/seatmap"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestRuntimeProcessesAssignmentAndDisconnects(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	api := &fakeAPI{}
-	api.assignment = &central.ClaimAssignmentResponse{
-		AssignmentID: "assignment_01", LeaseToken: "lease_01",
-		LeaseExpiresAt: time.Now().Add(time.Minute), Deadline: time.Now().Add(2 * time.Minute),
-		Task: testAssignmentTask(),
-	}
+	api.assignment = claimResponse(testAssignmentLease("assignment_01", "lease_01", time.Now().Add(time.Minute), time.Now().Add(2*time.Minute), testAssignmentTask()))
 	api.onCommit = cancel
-	executor := &fakeExecutor{captures: []central.Capture{{
-		TargetDate: "2026-08-20", Complete: true, ObservedAt: time.Now(), Showtimes: []central.Showtime{},
-	}}}
+	executor := &fakeExecutor{captures: []*observationpb.Capture{capture(true)}}
 	runtime := newRuntimeForTest(t, api, executor)
 	if err := runtime.Run(ctx); err != nil {
 		t.Fatal(err)
@@ -32,7 +30,7 @@ func TestRuntimeProcessesAssignmentAndDisconnects(t *testing.T) {
 	api.mu.Lock()
 	defer api.mu.Unlock()
 	if api.registerCalls != 1 || api.claimCalls == 0 || api.commitCalls != 1 || api.disconnectCalls != 1 ||
-		api.committed.Status != "completed" || api.committed.RunID == "" || executor.calls != 1 {
+		api.committed.GetCompleted() == nil || api.committed.GetRunId() == "" || executor.calls != 1 {
 		t.Fatalf("API = %+v, result = %+v, executor calls = %d", api, api.committed, executor.calls)
 	}
 }
@@ -41,35 +39,24 @@ func TestRuntimeReportsPartialAssignment(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
 	api := &fakeAPI{}
-	runtime := newRuntimeForTest(t, api, &fakeExecutor{captures: []central.Capture{
-		{TargetDate: "2026-08-20", Complete: true, ObservedAt: now},
-		{TargetDate: "2026-08-21", Complete: false, ObservedAt: now},
+	runtime := newRuntimeForTest(t, api, &fakeExecutor{captures: []*observationpb.Capture{
+		capture(true), capture(false),
 	}})
-	assignment := central.ClaimAssignmentResponse{
-		AssignmentID: "assignment_partial", LeaseToken: "lease",
-		LeaseExpiresAt: now.Add(time.Minute), Deadline: now.Add(2 * time.Minute),
-		Task: testAssignmentTask(),
-	}
+	assignment := testAssignmentLease("assignment_partial", "lease", now.Add(time.Minute), now.Add(2*time.Minute), testAssignmentTask())
 	if err := runtime.executeAssignment(context.Background(), Session{}, assignment); err != nil {
 		t.Fatal(err)
 	}
-	if api.committed.Status != "partial" {
-		t.Fatalf("result status = %q", api.committed.Status)
+	if resultOutcome(api.committed) != "degraded" {
+		t.Fatalf("result status = %q", resultOutcome(api.committed))
 	}
 }
 
 func TestRuntimeProcessesCatalogAssignmentAndRejectsUnsupportedExecutor(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
-	assignment := central.ClaimAssignmentResponse{
-		AssignmentID: "catalog_assignment", LeaseToken: "lease",
-		LeaseExpiresAt: now.Add(time.Minute), Deadline: now.Add(2 * time.Minute),
-		Task: testAssignmentTask(),
-	}
-	assignment.Task.Kind = central.CapabilityCGVCatalogCapture
-	catalog := &central.CatalogSnapshot{
-		Provider: central.Provider{ID: central.ProviderCGV, Name: "CGV"}, ObservedAt: now,
-	}
+	assignment := testAssignmentLease("catalog_assignment", "lease", now.Add(time.Minute), now.Add(2*time.Minute), testAssignmentTask())
+	assignment.SetTask(catalogAssignmentTask())
+	catalog := catalogSnapshot(now)
 	api := &fakeAPI{}
 	executor := &fakeExecutor{catalog: catalog}
 	runtime := newRuntimeForTest(t, api, executor)
@@ -79,7 +66,7 @@ func TestRuntimeProcessesCatalogAssignmentAndRejectsUnsupportedExecutor(t *testi
 	api.mu.Lock()
 	committed := api.committed
 	api.mu.Unlock()
-	if committed.Status != "completed" || committed.Catalog != catalog || committed.Captures != nil ||
+	if committed.GetCompleted() == nil || committed.GetCompleted().GetCatalog() != catalog || committed.GetCompleted().GetCaptures() != nil ||
 		executor.catalogCalls != 1 || executor.calls != 0 {
 		t.Fatalf("catalog result = %+v, schedule calls = %d, catalog calls = %d", committed, executor.calls, executor.catalogCalls)
 	}
@@ -92,7 +79,7 @@ func TestRuntimeProcessesCatalogAssignmentAndRejectsUnsupportedExecutor(t *testi
 	api.mu.Lock()
 	committed = api.committed
 	api.mu.Unlock()
-	if committed.Status != "failed" || committed.Catalog != nil {
+	if committed.GetFailed() == nil || committed.GetCompleted().GetCatalog() != nil {
 		t.Fatalf("unsupported catalog result = %+v", committed)
 	}
 
@@ -104,7 +91,7 @@ func TestRuntimeProcessesCatalogAssignmentAndRejectsUnsupportedExecutor(t *testi
 	api.mu.Lock()
 	committed = api.committed
 	api.mu.Unlock()
-	if committed.Status != "failed" || committed.Catalog != nil {
+	if committed.GetFailed() == nil || committed.GetCompleted().GetCatalog() != nil {
 		t.Fatalf("failed catalog result = %+v", committed)
 	}
 }
@@ -112,20 +99,16 @@ func TestRuntimeProcessesCatalogAssignmentAndRejectsUnsupportedExecutor(t *testi
 func TestRuntimeProcessesSeatMapAssignment(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
-	assignment := central.ClaimAssignmentResponse{
-		AssignmentID: "seat_assignment", LeaseToken: "lease",
-		LeaseExpiresAt: now.Add(time.Minute), Deadline: now.Add(2 * time.Minute),
-		Task: testAssignmentTask(),
-	}
-	assignment.Task.Kind = central.CapabilityCGVSeatMapCapture
-	seatMap := &central.SeatMapVersion{ID: "seat_map", AuditoriumID: "auditorium", LayoutHash: "hash"}
+	assignment := testAssignmentLease("seat_assignment", "lease", now.Add(time.Minute), now.Add(2*time.Minute), testAssignmentTask())
+	assignment.SetTask(seatMapAssignmentTask())
+	seatMap := seatMapSnapshot("seat_map", "auditorium", "hash")
 	api := &fakeAPI{}
 	executor := &fakeExecutor{seatMap: seatMap}
 	runtime := newRuntimeForTest(t, api, executor)
 	if err := runtime.executeAssignment(context.Background(), Session{}, assignment); err != nil {
 		t.Fatal(err)
 	}
-	if api.committed.Status != "completed" || api.committed.SeatMap != seatMap || executor.seatMapCalls != 1 {
+	if api.committed.GetCompleted() == nil || api.committed.GetCompleted().GetSeatMap() != seatMap || executor.seatMapCalls != 1 {
 		t.Fatalf("seat-map result = %+v, calls = %d", api.committed, executor.seatMapCalls)
 	}
 
@@ -134,7 +117,7 @@ func TestRuntimeProcessesSeatMapAssignment(t *testing.T) {
 	if err := runtime.executeAssignment(context.Background(), Session{}, assignment); err != nil {
 		t.Fatal(err)
 	}
-	if api.committed.Status != "failed" || api.committed.SeatMap != nil {
+	if api.committed.GetFailed() == nil || api.committed.GetCompleted().GetSeatMap() != nil {
 		t.Fatalf("unsupported seat-map result = %+v", api.committed)
 	}
 }
@@ -190,13 +173,9 @@ func TestRuntimeRenewsLeaseWhileCaptureRuns(t *testing.T) {
 	api := &fakeAPI{}
 	release := make(chan struct{})
 	api.onAssignmentHeartbeat = func() { close(release) }
-	executor := &fakeExecutor{wait: release, captures: []central.Capture{{TargetDate: "2026-08-20", Complete: true}}}
+	executor := &fakeExecutor{wait: release, captures: []*observationpb.Capture{capture(true)}}
 	runtime := newRuntimeForTest(t, api, executor)
-	assignment := central.ClaimAssignmentResponse{
-		AssignmentID: "assignment", LeaseToken: "lease",
-		LeaseExpiresAt: time.Now().Add(3 * time.Second), Deadline: time.Now().Add(time.Minute),
-		Task: testAssignmentTask(),
-	}
+	assignment := testAssignmentLease("assignment", "lease", time.Now().Add(3*time.Second), time.Now().Add(time.Minute), testAssignmentTask())
 	if err := runtime.executeAssignment(context.Background(), Session{}, assignment); err != nil {
 		t.Fatal(err)
 	}
@@ -212,11 +191,7 @@ func TestRuntimeRejectsAssignmentClaimedDuringDrainTransition(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	executor := &fakeExecutor{}
-	api := &fakeAPI{assignment: &central.ClaimAssignmentResponse{
-		AssignmentID: "assignment_during_drain", LeaseToken: "lease",
-		LeaseExpiresAt: time.Now().Add(time.Minute), Deadline: time.Now().Add(time.Minute),
-		Task: testAssignmentTask(),
-	}}
+	api := &fakeAPI{assignment: claimResponse(testAssignmentLease("assignment_during_drain", "lease", time.Now().Add(time.Minute), time.Now().Add(time.Minute), testAssignmentTask()))}
 	runtime := newRuntimeForTest(t, api, executor)
 	api.onClaim = func() { runtime.SetDraining(true) }
 	api.onCommit = cancel
@@ -224,7 +199,7 @@ func TestRuntimeRejectsAssignmentClaimedDuringDrainTransition(t *testing.T) {
 		t.Fatalf("workLoop() error = %v", err)
 	}
 	runtime.random = errorReader{}
-	if err := runtime.rejectClaimWhileDraining(context.Background(), Session{}, central.ClaimAssignmentResponse{}); !errors.Is(err, io.ErrUnexpectedEOF) {
+	if err := runtime.rejectClaimWhileDraining(context.Background(), Session{}, &probepb.AssignmentLease{}); !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Fatalf("drained claim run ID error = %v", err)
 	}
 	api.mu.Lock()
@@ -232,9 +207,9 @@ func TestRuntimeRejectsAssignmentClaimedDuringDrainTransition(t *testing.T) {
 	if executor.calls != 0 || api.commitCalls != 1 {
 		t.Fatalf("executor calls = %d, commits = %d", executor.calls, api.commitCalls)
 	}
-	if api.committed.Status != "failed" || api.committed.RunID == "" ||
-		api.committed.StartedAt.IsZero() || api.committed.FinishedAt.IsZero() ||
-		api.committed.Captures == nil || len(api.committed.Captures) != 0 {
+	if api.committed.GetFailed() == nil || api.committed.GetRunId() == "" ||
+		api.committed.GetStartedAt().AsTime().IsZero() || api.committed.GetFinishedAt().AsTime().IsZero() ||
+		api.committed.GetFailed().GetReasonCode() != "capture_failed" {
 		t.Fatalf("drained claim result = %+v", api.committed)
 	}
 }
@@ -290,21 +265,10 @@ func TestRuntimeRegistrationRetryAndReauthentication(t *testing.T) {
 func TestRuntimeAssignmentFailureBoundaries(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
-	assignment := central.ClaimAssignmentResponse{
-		AssignmentID: "assignment", LeaseToken: "lease", LeaseExpiresAt: now.Add(time.Minute),
-		Deadline: now.Add(time.Minute), Task: testAssignmentTask(),
-	}
-	for _, expired := range []central.ClaimAssignmentResponse{
-		func() central.ClaimAssignmentResponse {
-			value := assignment
-			value.LeaseExpiresAt = now.Add(-time.Second)
-			return value
-		}(),
-		func() central.ClaimAssignmentResponse {
-			value := assignment
-			value.Deadline = now.Add(-time.Second)
-			return value
-		}(),
+	assignment := testAssignmentLease("assignment", "lease", now.Add(time.Minute), now.Add(time.Minute), testAssignmentTask())
+	for _, expired := range []*probepb.AssignmentLease{
+		testAssignmentLease("assignment", "lease", now.Add(-time.Second), now.Add(time.Minute), testAssignmentTask()),
+		testAssignmentLease("assignment", "lease", now.Add(time.Minute), now.Add(-time.Second), testAssignmentTask()),
 	} {
 		runtime := newRuntimeForTest(t, &fakeAPI{}, &fakeExecutor{})
 		if err := runtime.executeAssignment(context.Background(), Session{}, expired); !errors.Is(err, ErrLeaseExpired) {
@@ -315,7 +279,7 @@ func TestRuntimeAssignmentFailureBoundaries(t *testing.T) {
 	runtime := newRuntimeForTest(t, api, &fakeExecutor{})
 	runtime.wait = func(context.Context, time.Duration) error { return nil }
 	result, err := runtime.assignmentResult(executionOutput{}, io.ErrUnexpectedEOF, now, now.Add(time.Second))
-	if err != nil || result.Status != "failed" {
+	if err != nil || result.GetFailed() == nil {
 		t.Fatalf("failed result = %+v, %v", result, err)
 	}
 	if err := runtime.commitResult(context.Background(), Session{}, assignment, result); err != nil {
@@ -340,13 +304,13 @@ func TestRuntimeStateConfigurationAndHelpers(t *testing.T) {
 	if _, err := NewRuntime(nil, StaticCredential("token"), &fakeExecutor{}, valid); err == nil {
 		t.Fatal("nil API accepted")
 	}
-	invalidConcurrency := valid
-	invalidConcurrency.Registration.MaxConcurrency = 2
+	invalidConcurrency := Config{Registration: testRegistration()}
+	invalidConcurrency.Registration.SetMaxConcurrency(2)
 	if _, err := NewRuntime(&fakeAPI{}, StaticCredential("token"), &fakeExecutor{}, invalidConcurrency); err == nil {
 		t.Fatal("invalid concurrency accepted")
 	}
-	invalidKind := valid
-	invalidKind.Registration.Kind = "invalid"
+	invalidKind := Config{Registration: testRegistration()}
+	invalidKind.Registration.SetKind(&probepb.ProbeKind{})
 	if _, err := NewRuntime(&fakeAPI{}, StaticCredential("token"), &fakeExecutor{}, invalidKind); err == nil {
 		t.Fatal("invalid kind accepted")
 	}
@@ -367,13 +331,13 @@ func TestRuntimeStateConfigurationAndHelpers(t *testing.T) {
 	}
 	runtime.SetDraining(true)
 	state := runtime.heartbeatState()
-	if !state.Draining || state.AvailableSlots != 0 {
+	if !state.GetDraining() || state.GetAvailableSlots() != 0 {
 		t.Fatalf("draining heartbeat = %+v", state)
 	}
 	runtime.SetDraining(false)
 	runtime.setActive("assignment")
 	state = runtime.heartbeatState()
-	if state.AvailableSlots != 0 || len(state.ActiveAssignmentIDs) != 1 {
+	if state.GetAvailableSlots() != 0 || len(state.GetActiveAssignmentIds()) != 1 {
 		t.Fatalf("active heartbeat = %+v", state)
 	}
 	runtime.setActive("")
@@ -381,22 +345,25 @@ func TestRuntimeStateConfigurationAndHelpers(t *testing.T) {
 	if !runtime.draining() {
 		t.Fatal("remote drain was ignored")
 	}
-	if resultStatus(executionOutput{}, nil) != "failed" ||
-		resultStatus(executionOutput{catalog: &central.CatalogSnapshot{}}, nil) != "completed" ||
-		resultStatus(executionOutput{seatMap: &central.SeatMapVersion{}}, nil) != "completed" ||
-		resultStatus(executionOutput{captures: []central.Capture{{Complete: true}, {Complete: false}}}, nil) != "partial" ||
-		resultStatus(executionOutput{captures: []central.Capture{{Complete: false}}}, nil) != "failed" ||
-		resultStatus(executionOutput{captures: []central.Capture{{Complete: true}}}, nil) != "completed" {
+	if resultOutcome(resultForOutput(executionOutput{})) != "failed" ||
+		resultOutcome(resultForOutput(executionOutput{catalog: &catalogpb.CatalogSnapshot{}})) != "succeeded" ||
+		resultOutcome(resultForOutput(executionOutput{seatMap: &seatmappb.Snapshot{}})) != "succeeded" ||
+		resultOutcome(resultForOutput(executionOutput{captures: []*observationpb.Capture{capture(true), capture(false)}})) != "degraded" ||
+		resultOutcome(resultForOutput(executionOutput{captures: []*observationpb.Capture{capture(false)}})) != "failed" ||
+		resultOutcome(resultForOutput(executionOutput{captures: []*observationpb.Capture{capture(true)}})) != "succeeded" {
 		t.Fatal("result status classification mismatch")
 	}
-	runtime.config.Registration.Capabilities = []string{
-		central.CapabilityCGVScheduleCapture, central.CapabilityCGVSeatMapCapture,
-	}
-	runtime.config.AvailableCapabilities = func() []string {
-		return []string{central.CapabilityCGVSeatMapCapture, "unsupported", central.CapabilityCGVSeatMapCapture}
+	scheduleCapability := &observationpb.Capability{}
+	scheduleCapability.SetScheduleCapture(&observationpb.ScheduleCapture{})
+	seatMapCapability := &observationpb.Capability{}
+	seatMapCapability.SetSeatMapCapture(&observationpb.SeatMapCapture{})
+	emptyCapability := &observationpb.Capability{}
+	runtime.config.Registration.SetCapabilities([]*observationpb.Capability{scheduleCapability, seatMapCapability})
+	runtime.config.AvailableCapabilities = func() []*observationpb.Capability {
+		return []*observationpb.Capability{seatMapCapability, emptyCapability, seatMapCapability}
 	}
 	if available := runtime.availableCapabilities(); len(available) != 1 ||
-		available[0] != central.CapabilityCGVSeatMapCapture {
+		available[0].GetSeatMapCapture() == nil {
 		t.Fatalf("available capabilities = %v", available)
 	}
 	if !retryable(io.ErrUnexpectedEOF) || retryable(ErrUnauthorized) || retryable(ErrLeaseExpired) ||
@@ -438,7 +405,7 @@ func TestRuntimeRegistrationAndLoopFailurePaths(t *testing.T) {
 	if err := runtime.Run(context.Background()); !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Fatalf("runtime credential error = %v", err)
 	}
-	api := &fakeAPI{useRegisterResponse: true, registerResponse: central.RegisterProbeResponse{}}
+	api := &fakeAPI{useRegisterResponse: true, registerResponse: &probepb.RegisterResponse{}}
 	runtime = newRuntimeForTest(t, api, &fakeExecutor{})
 	if _, _, err := runtime.register(context.Background()); err == nil {
 		t.Fatal("invalid registration response accepted")
@@ -531,24 +498,21 @@ func TestRuntimeRegistrationAndLoopFailurePaths(t *testing.T) {
 	}
 
 	assignmentTime := time.Date(2026, time.August, 11, 12, 0, 0, 0, time.UTC)
-	assignment := central.ClaimAssignmentResponse{
-		AssignmentID: "assignment", LeaseToken: "lease", LeaseExpiresAt: assignmentTime.Add(30 * time.Millisecond),
-		Deadline: assignmentTime.Add(time.Minute), Task: testAssignmentTask(),
-	}
-	api = &fakeAPI{assignment: &assignment, assignmentHeartbeatErrors: []error{ErrUnauthorized}}
+	assignment := testAssignmentLease("assignment", "lease", assignmentTime.Add(30*time.Millisecond), assignmentTime.Add(time.Minute), testAssignmentTask())
+	api = &fakeAPI{assignment: claimResponse(assignment), assignmentHeartbeatErrors: []error{ErrUnauthorized}}
 	runtime = newRuntimeForTest(t, api, &fakeExecutor{wait: make(chan struct{})})
 	runtime.clock = func() time.Time { return assignmentTime }
 	if err := runtime.workLoop(context.Background(), Session{}); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("assignment authorization error = %v", err)
 	}
 
-	assignment.LeaseExpiresAt = time.Now().Add(time.Minute)
-	assignment.Deadline = time.Now().Add(time.Minute)
+	assignment.SetLeaseExpiresAt(timestamppb.New(time.Now().Add(time.Minute)))
+	assignment.SetDeadline(timestamppb.New(time.Now().Add(time.Minute)))
 	api = &fakeAPI{
-		assignment:   &assignment,
+		assignment:   claimResponse(assignment),
 		commitErrors: []error{&APIError{StatusCode: 400, Code: "invalid_result"}},
 	}
-	runtime = newRuntimeForTest(t, api, &fakeExecutor{captures: []central.Capture{{Complete: true}}})
+	runtime = newRuntimeForTest(t, api, &fakeExecutor{captures: []*observationpb.Capture{capture(true)}})
 	runtime.wait = func(context.Context, time.Duration) error { return context.Canceled }
 	if err := runtime.workLoop(context.Background(), Session{}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("assignment failure continuation = %v", err)
@@ -564,12 +528,13 @@ func TestRuntimeRegistrationAndLoopFailurePaths(t *testing.T) {
 
 func TestRuntimeEnforcesCentralMinimumPolicy(t *testing.T) {
 	t.Parallel()
-	api := &fakeAPI{heartbeatResponse: central.ProbeHeartbeatResponse{
-		MinimumRuntimeVersion: "2.0.0", MinimumBrowserRevision: "1228",
-	}}
+	heartbeatResponse := &probepb.HeartbeatResponse{}
+	heartbeatResponse.SetMinimumRuntimeVersion("2.0.0")
+	heartbeatResponse.SetMinimumBrowserRevision("1228")
+	api := &fakeAPI{heartbeatResponse: heartbeatResponse}
 	runtime := newRuntimeForTest(t, api, &fakeExecutor{})
-	runtime.config.Registration.Runtime.Version = "1.9.9"
-	runtime.config.Registration.Runtime.BrowserRevision = "1228"
+	runtime.config.Registration.GetRuntime().SetComponentVersion("1.9.9")
+	runtime.config.Registration.GetRuntime().SetBrowserRevision("1228")
 	if err := runtime.sendProbeHeartbeat(context.Background(), Session{}); !errors.Is(err, ErrIncompatibleRuntime) {
 		t.Fatalf("outdated runtime policy error = %v", err)
 	}
@@ -577,11 +542,9 @@ func TestRuntimeEnforcesCentralMinimumPolicy(t *testing.T) {
 		t.Fatal("outdated runtime did not enter drain state")
 	}
 	runtime.remoteDrain = false
-	runtime.config.Registration.Runtime.Version = "2.0.0"
-	runtime.config.Registration.Runtime.BrowserRevision = "1227"
-	if err := runtime.validateMinimumPolicy(central.ProbeHeartbeatResponse{
-		MinimumRuntimeVersion: "2.0.0", MinimumBrowserRevision: "1228",
-	}); !errors.Is(err, ErrIncompatibleRuntime) {
+	runtime.config.Registration.GetRuntime().SetComponentVersion("2.0.0")
+	runtime.config.Registration.GetRuntime().SetBrowserRevision("1227")
+	if err := runtime.validateMinimumPolicy(heartbeatResponse); !errors.Is(err, ErrIncompatibleRuntime) {
 		t.Fatalf("outdated browser policy error = %v", err)
 	}
 	for _, test := range []struct {
@@ -667,11 +630,8 @@ func TestRuntimeWorkLoopSkipsDelayAfterAvailabilityWaitingClaim(t *testing.T) {
 func TestRuntimeLeaseHeartbeatFailurePaths(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
-	base := func() central.ClaimAssignmentResponse {
-		return central.ClaimAssignmentResponse{
-			AssignmentID: "assignment", LeaseToken: "lease", LeaseExpiresAt: now.Add(30 * time.Millisecond),
-			Deadline: now.Add(time.Minute), Task: testAssignmentTask(),
-		}
+	base := func() *probepb.AssignmentLease {
+		return testAssignmentLease("assignment", "lease", now.Add(30*time.Millisecond), now.Add(time.Minute), testAssignmentTask())
 	}
 	for _, heartbeatErr := range []error{ErrUnauthorized, ErrLeaseExpired} {
 		api := &fakeAPI{assignmentHeartbeatErrors: []error{heartbeatErr}}
@@ -683,23 +643,23 @@ func TestRuntimeLeaseHeartbeatFailurePaths(t *testing.T) {
 	}
 	api := &fakeAPI{
 		assignmentHeartbeatErrors:   []error{io.ErrUnexpectedEOF},
-		assignmentHeartbeatResponse: central.AssignmentHeartbeatResponse{LeaseExpiresAt: time.Now().Add(time.Minute)},
+		assignmentHeartbeatResponse: heartbeatAssignmentResponse(time.Now().Add(time.Minute)),
 	}
 	release := make(chan struct{})
 	api.onAssignmentHeartbeat = func() { close(release) }
-	runtime := newRuntimeForTest(t, api, &fakeExecutor{wait: release, captures: []central.Capture{{Complete: true}}})
+	runtime := newRuntimeForTest(t, api, &fakeExecutor{wait: release, captures: []*observationpb.Capture{capture(true)}})
 	runtime.clock = func() time.Time { return now }
 	if err := runtime.executeAssignment(context.Background(), Session{}, base()); err != nil {
 		t.Fatalf("transient lease heartbeat = %v", err)
 	}
-	api = &fakeAPI{assignmentHeartbeatResponse: central.AssignmentHeartbeatResponse{LeaseExpiresAt: time.Now().Add(-time.Second)}}
+	api = &fakeAPI{assignmentHeartbeatResponse: heartbeatAssignmentResponse(time.Now().Add(-time.Second))}
 	runtime = newRuntimeForTest(t, api, &fakeExecutor{wait: make(chan struct{})})
 	runtime.clock = func() time.Time { return now }
 	if err := runtime.executeAssignment(context.Background(), Session{}, base()); err == nil {
 		t.Fatal("invalid lease extension accepted")
 	}
 	expiring := base()
-	expiring.LeaseExpiresAt = time.Now().Add(20 * time.Millisecond)
+	expiring.SetLeaseExpiresAt(timestamppb.New(time.Now().Add(20 * time.Millisecond)))
 	runtime = newRuntimeForTest(t, &fakeAPI{}, &fakeExecutor{wait: make(chan struct{})})
 	runtime.leaseHeartbeatMinimum = 40 * time.Millisecond
 	if err := runtime.executeAssignment(context.Background(), Session{}, expiring); !errors.Is(err, ErrLeaseExpired) {
@@ -710,13 +670,13 @@ func TestRuntimeLeaseHeartbeatFailurePaths(t *testing.T) {
 	releaseCapture := make(chan struct{})
 	runtime = newRuntimeForTest(t, &fakeAPI{}, contextIgnoringExecutor{wait: releaseCapture})
 	validAssignment := base()
-	validAssignment.LeaseExpiresAt = time.Now().Add(time.Minute)
-	validAssignment.Deadline = time.Now().Add(time.Minute)
+	validAssignment.SetLeaseExpiresAt(timestamppb.New(time.Now().Add(time.Minute)))
+	validAssignment.SetDeadline(timestamppb.New(time.Now().Add(time.Minute)))
 	if err := runtime.executeAssignment(captureContext, Session{}, validAssignment); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled capture error = %v", err)
 	}
 	close(releaseCapture)
-	runtime = newRuntimeForTest(t, &fakeAPI{}, &fakeExecutor{captures: []central.Capture{{Complete: true}}})
+	runtime = newRuntimeForTest(t, &fakeAPI{}, &fakeExecutor{captures: []*observationpb.Capture{capture(true)}})
 	runtime.random = errorReader{}
 	if err := runtime.executeAssignment(context.Background(), Session{}, validAssignment); !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Fatalf("result id failure = %v", err)
@@ -725,13 +685,17 @@ func TestRuntimeLeaseHeartbeatFailurePaths(t *testing.T) {
 
 func TestRuntimeCommitDeadlineAndWaitFailures(t *testing.T) {
 	t.Parallel()
-	result := central.AssignmentResult{RunID: "run", Status: "failed", StartedAt: time.Now(), FinishedAt: time.Now()}
-	assignment := central.ClaimAssignmentResponse{LeaseExpiresAt: time.Now().Add(time.Millisecond)}
+	result := &observationpb.AssignmentResult{}
+	result.SetRunId("run")
+	result.SetStartedAt(timestamppb.Now())
+	result.SetFinishedAt(timestamppb.Now())
+	result.SetFailed(&observationpb.Failed{})
+	assignment := testAssignmentLease("assignment", "lease", time.Now().Add(time.Millisecond), time.Now().Add(time.Minute), testAssignmentTask())
 	runtime := newRuntimeForTest(t, &fakeAPI{commitErrors: []error{io.ErrUnexpectedEOF}}, &fakeExecutor{})
 	if err := runtime.commitResult(context.Background(), Session{}, assignment, result); !errors.Is(err, ErrLeaseExpired) {
 		t.Fatalf("commit deadline error = %v", err)
 	}
-	assignment.LeaseExpiresAt = time.Now().Add(time.Minute)
+	assignment.SetLeaseExpiresAt(timestamppb.New(time.Now().Add(time.Minute)))
 	runtime = newRuntimeForTest(t, &fakeAPI{commitErrors: []error{io.ErrUnexpectedEOF}}, &fakeExecutor{})
 	runtime.wait = func(context.Context, time.Duration) error { return context.Canceled }
 	if err := runtime.commitResult(context.Background(), Session{}, assignment, result); !errors.Is(err, context.Canceled) {
@@ -743,6 +707,69 @@ func TestRuntimeCommitDeadlineAndWaitFailures(t *testing.T) {
 	if err != nil || delay < time.Second || delay > 2*time.Second {
 		t.Fatalf("random delay = %v, %v", delay, err)
 	}
+}
+
+func testAssignmentLease(assignmentID, leaseToken string, leaseExpiresAt, deadline time.Time, task *observationpb.AssignmentTask) *probepb.AssignmentLease {
+	assignment := &probepb.AssignmentLease{}
+	assignment.SetAssignmentId(assignmentID)
+	assignment.SetLeaseToken(leaseToken)
+	assignment.SetLeaseExpiresAt(timestamppb.New(leaseExpiresAt))
+	assignment.SetDeadline(timestamppb.New(deadline))
+	assignment.SetTask(task)
+	return assignment
+}
+
+func claimResponse(assignment *probepb.AssignmentLease) *probepb.ClaimAssignmentResponse {
+	response := &probepb.ClaimAssignmentResponse{}
+	response.SetAssignment(assignment)
+	return response
+}
+
+func heartbeatAssignmentResponse(leaseExpiresAt time.Time) *probepb.HeartbeatAssignmentResponse {
+	response := &probepb.HeartbeatAssignmentResponse{}
+	response.SetLeaseExpiresAt(timestamppb.New(leaseExpiresAt))
+	return response
+}
+
+func capture(complete bool) *observationpb.Capture {
+	value := &observationpb.Capture{}
+	value.SetComplete(complete)
+	value.SetObservedAt(timestamppb.Now())
+	return value
+}
+
+func resultForOutput(output executionOutput) *observationpb.AssignmentResult {
+	result := &observationpb.AssignmentResult{}
+	completed := &observationpb.Completed{}
+	completed.SetCaptures(output.captures)
+	completed.SetCatalog(output.catalog)
+	completed.SetSeatMap(output.seatMap)
+	result.SetCompleted(completed)
+	return result
+}
+
+func catalogAssignmentTask() *observationpb.AssignmentTask {
+	task := testAssignmentTask()
+	setCatalogTask(task)
+	return task
+}
+
+func catalogSnapshot(observedAt time.Time) *catalogpb.CatalogSnapshot {
+	provider := &catalogpb.Provider{}
+	provider.SetId("cgv")
+	provider.SetName("CGV")
+	snapshot := &catalogpb.CatalogSnapshot{}
+	snapshot.SetProvider(provider)
+	snapshot.SetObservedAt(timestamppb.New(observedAt))
+	return snapshot
+}
+
+func seatMapSnapshot(id, auditoriumID, layoutHash string) *seatmappb.Snapshot {
+	snapshot := &seatmappb.Snapshot{}
+	snapshot.SetId(id)
+	snapshot.SetAuditoriumId(auditoriumID)
+	snapshot.SetLayoutHash(layoutHash)
+	return snapshot
 }
 
 func newRuntimeForTest(t *testing.T, api API, executor Executor) *Runtime {
@@ -760,9 +787,9 @@ func newRuntimeForTest(t *testing.T, api API, executor Executor) *Runtime {
 
 type fakeExecutor struct {
 	mu           sync.Mutex
-	captures     []central.Capture
-	catalog      *central.CatalogSnapshot
-	seatMap      *central.SeatMapVersion
+	captures     []*observationpb.Capture
+	catalog      *catalogpb.CatalogSnapshot
+	seatMap      *seatmappb.Snapshot
 	err          error
 	catalogErr   error
 	wait         <-chan struct{}
@@ -773,8 +800,8 @@ type fakeExecutor struct {
 
 func (executor *fakeExecutor) CaptureSeatMap(
 	context.Context,
-	central.AssignmentTask,
-) (*central.SeatMapVersion, error) {
+	*observationpb.AssignmentTask,
+) (*seatmappb.Snapshot, error) {
 	executor.mu.Lock()
 	defer executor.mu.Unlock()
 	executor.seatMapCalls++
@@ -785,12 +812,12 @@ type contextIgnoringExecutor struct {
 	wait <-chan struct{}
 }
 
-func (executor contextIgnoringExecutor) Capture(context.Context, central.AssignmentTask) ([]central.Capture, error) {
+func (executor contextIgnoringExecutor) Capture(context.Context, *observationpb.AssignmentTask) ([]*observationpb.Capture, error) {
 	<-executor.wait
 	return nil, nil
 }
 
-func (executor *fakeExecutor) Capture(ctx context.Context, _ central.AssignmentTask) ([]central.Capture, error) {
+func (executor *fakeExecutor) Capture(ctx context.Context, _ *observationpb.AssignmentTask) ([]*observationpb.Capture, error) {
 	executor.mu.Lock()
 	executor.calls++
 	executor.mu.Unlock()
@@ -806,8 +833,8 @@ func (executor *fakeExecutor) Capture(ctx context.Context, _ central.AssignmentT
 
 func (executor *fakeExecutor) CaptureCatalog(
 	context.Context,
-	central.AssignmentTask,
-) (*central.CatalogSnapshot, error) {
+	*observationpb.AssignmentTask,
+) (*catalogpb.CatalogSnapshot, error) {
 	executor.mu.Lock()
 	defer executor.mu.Unlock()
 	executor.catalogCalls++
@@ -821,18 +848,18 @@ type fakeAPI struct {
 	claimErrors                 []error
 	assignmentHeartbeatErrors   []error
 	commitErrors                []error
-	registerResponse            central.RegisterProbeResponse
-	heartbeatResponse           central.ProbeHeartbeatResponse
+	registerResponse            *probepb.RegisterResponse
+	heartbeatResponse           *probepb.HeartbeatResponse
 	useRegisterResponse         bool
-	assignmentHeartbeatResponse central.AssignmentHeartbeatResponse
-	assignment                  *central.ClaimAssignmentResponse
+	assignmentHeartbeatResponse *probepb.HeartbeatAssignmentResponse
+	assignment                  *probepb.ClaimAssignmentResponse
 	registerCalls               int
 	heartbeatCalls              int
 	claimCalls                  int
 	assignmentHeartbeatCalls    int
 	commitCalls                 int
 	disconnectCalls             int
-	committed                   central.AssignmentResult
+	committed                   *observationpb.AssignmentResult
 	onCommit                    func()
 	onClaim                     func()
 	onAssignmentHeartbeat       func()
@@ -848,27 +875,29 @@ func (availabilityWaitingAPI) AssignmentClaimWaitsForAvailability() bool { retur
 func (api *fakeAPI) Register(
 	context.Context,
 	string,
-	central.RegisterProbeRequest,
-) (central.RegisterProbeResponse, error) {
+	*probepb.RegisterRequest,
+) (*probepb.RegisterResponse, error) {
 	api.mu.Lock()
 	defer api.mu.Unlock()
 	api.registerCalls++
 	if err := shiftError(&api.registerErrors); err != nil {
-		return central.RegisterProbeResponse{}, err
+		return nil, err
 	}
 	if api.useRegisterResponse {
 		return api.registerResponse, nil
 	}
-	return central.RegisterProbeResponse{
-		ProbeID: "probe", AccessToken: "access", HeartbeatIntervalSeconds: 1,
-	}, nil
+	response := &probepb.RegisterResponse{}
+	response.SetProbeId("probe")
+	response.SetAccessToken("access")
+	response.SetHeartbeatIntervalSeconds(1)
+	return response, nil
 }
 
 func (api *fakeAPI) HeartbeatProbe(
 	context.Context,
 	Session,
-	central.ProbeHeartbeatRequest,
-) (central.ProbeHeartbeatResponse, error) {
+	*probepb.HeartbeatRequest,
+) (*probepb.HeartbeatResponse, error) {
 	api.mu.Lock()
 	api.heartbeatCalls++
 	err := shiftError(&api.heartbeatErrors)
@@ -880,6 +909,9 @@ func (api *fakeAPI) HeartbeatProbe(
 	if cancel != nil {
 		cancel()
 	}
+	if api.heartbeatResponse == nil {
+		return &probepb.HeartbeatResponse{}, err
+	}
 	return api.heartbeatResponse, err
 }
 
@@ -890,7 +922,7 @@ func (api *fakeAPI) DisconnectProbe(context.Context, Session) error {
 	return nil
 }
 
-func (api *fakeAPI) ClaimAssignment(context.Context, Session) (*central.ClaimAssignmentResponse, error) {
+func (api *fakeAPI) ClaimAssignment(context.Context, Session) (*probepb.ClaimAssignmentResponse, error) {
 	api.mu.Lock()
 	api.claimCalls++
 	if err := shiftError(&api.claimErrors); err != nil {
@@ -911,8 +943,8 @@ func (api *fakeAPI) ClaimAssignment(context.Context, Session) (*central.ClaimAss
 func (api *fakeAPI) HeartbeatAssignment(
 	context.Context,
 	Session,
-	central.ClaimAssignmentResponse,
-) (central.AssignmentHeartbeatResponse, error) {
+	*probepb.AssignmentLease,
+) (*probepb.HeartbeatAssignmentResponse, error) {
 	api.mu.Lock()
 	api.assignmentHeartbeatCalls++
 	err := shiftError(&api.assignmentHeartbeatErrors)
@@ -923,20 +955,22 @@ func (api *fakeAPI) HeartbeatAssignment(
 		callback()
 	}
 	if err != nil {
-		return central.AssignmentHeartbeatResponse{}, err
+		return nil, err
 	}
-	if !api.assignmentHeartbeatResponse.LeaseExpiresAt.IsZero() {
+	if api.assignmentHeartbeatResponse != nil && api.assignmentHeartbeatResponse.GetLeaseExpiresAt() != nil {
 		return api.assignmentHeartbeatResponse, nil
 	}
-	return central.AssignmentHeartbeatResponse{LeaseExpiresAt: time.Now().Add(time.Minute)}, nil
+	response := &probepb.HeartbeatAssignmentResponse{}
+	response.SetLeaseExpiresAt(timestamppb.New(time.Now().Add(time.Minute)))
+	return response, nil
 }
 
 func (api *fakeAPI) CommitResult(
 	_ context.Context,
 	_ Session,
-	_ central.ClaimAssignmentResponse,
-	result central.AssignmentResult,
-) (central.ResultReceipt, error) {
+	_ *probepb.AssignmentLease,
+	result *observationpb.AssignmentResult,
+) (*observationpb.ResultReceipt, error) {
 	api.mu.Lock()
 	api.commitCalls++
 	api.committed = result
@@ -946,7 +980,7 @@ func (api *fakeAPI) CommitResult(
 	if callback != nil {
 		callback()
 	}
-	return central.ResultReceipt{}, err
+	return &observationpb.ResultReceipt{}, err
 }
 
 func shiftError(values *[]error) error {

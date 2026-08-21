@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	contracts "github.com/cineko-org/contracts/v3"
+	probepb "github.com/cineko-org/contracts/gen/go/cineko/probe"
 	cgvbrowser "github.com/cineko-org/probe/v2/internal/provider/cgv/browser"
 )
 
@@ -18,7 +18,7 @@ type BrowserRuntimeConfig struct {
 	DataDir         string
 	HTTPClient      *http.Client
 	Credentials     CredentialSource
-	Registration    contracts.RegisterProbeRequest
+	Registration    *probepb.RegisterRequest
 	SeatMapExecutor SeatMapExecutor
 	Runtime         Config
 }

@@ -1,6 +1,0 @@
-.PHONY: check
-
-check:
-	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 run ./...
-	go test -race -coverprofile=coverage.out ./...
-	go tool cover -func=coverage.out | awk '/^total:/ { if ($$3 != "100.0%") exit 1 }'

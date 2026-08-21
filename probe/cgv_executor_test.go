@@ -6,10 +6,14 @@ import (
 	"testing"
 	"time"
 
-	central "github.com/cineko-org/contracts/v3"
+	catalogpb "github.com/cineko-org/contracts/gen/go/cineko/catalog"
+	commonpb "github.com/cineko-org/contracts/gen/go/cineko/common"
+	observationpb "github.com/cineko-org/contracts/gen/go/cineko/observation"
+	seatmappb "github.com/cineko-org/contracts/gen/go/cineko/seatmap"
 	"github.com/cineko-org/probe/v2/internal/egress"
 	"github.com/cineko-org/probe/v2/internal/provider/cgv"
 	cgvbrowser "github.com/cineko-org/probe/v2/internal/provider/cgv/browser"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestCGVExecutorCaptureMapping(t *testing.T) {
@@ -39,12 +43,12 @@ func TestCGVExecutorCaptureMapping(t *testing.T) {
 		clock: func() time.Time { return now },
 	}
 	task := testAssignmentTask()
-	task.TargetDates = []string{"2026-08-12"}
+	task.GetSchedule().SetTargetDates([]*commonpb.LocalDate{testLocalDate(2026, 8, 12)})
 	values, err := executor.Capture(context.Background(), task)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(values) != 2 || !values[0].Complete || values[1].ErrorCode != "ui_contract_changed" ||
+	if len(values) != 2 || !values[0].GetComplete() || values[1].GetErrorCode() != "ui_contract_changed" ||
 		openCalls != 1 || !browser.closed {
 		t.Fatalf("captures = %+v, browser opens = %d, closed = %t", values, openCalls, browser.closed)
 	}
@@ -52,16 +56,16 @@ func TestCGVExecutorCaptureMapping(t *testing.T) {
 		!openedTask.Headless || openedTask.Locale != "ko-KR" || openedTask.TimeZone != "Asia/Seoul" {
 		t.Fatalf("browser task = %+v", openedTask)
 	}
-	showtime := values[0].Showtimes[0]
-	if showtime.ID != central.CatalogID(central.ProviderCGV, "showtime", showtime.SourceKey) ||
-		showtime.ProviderID != central.ProviderCGV || showtime.TheaterID != testAssignmentTask().Theater.ID ||
-		showtime.Auditorium.ID != central.CatalogID(central.ProviderCGV, "auditorium", showtime.Auditorium.SourceKey) ||
-		showtime.Auditorium.TheaterID != showtime.TheaterID || showtime.Auditorium.Name != "6관 (Laser)" ||
-		showtime.Movie.ID != central.CatalogID(central.ProviderCGV, "movie", showtime.Movie.SourceKey) ||
-		showtime.Movie.Title != "명탐정 코난-하이웨이의 타천사" || showtime.Movie.PosterURL == "" ||
-		showtime.EndsAt.Sub(showtime.StartsAt) != time.Hour+59*time.Minute || !showtime.SoldOut ||
-		!values[0].ObservedAt.Equal(now.Add(time.Second)) {
-		t.Fatalf("showtime = %+v, observed = %v", showtime, values[0].ObservedAt)
+	showtime := values[0].GetShowtimes()[0]
+	if showtime.GetId() != cgv.CatalogID(cgv.ProviderCGV, "showtime", showtime.GetSourceKey()) ||
+		showtime.GetProviderId() != cgv.ProviderCGV || showtime.GetTheaterId() != testAssignmentTask().GetSchedule().GetTheater().GetId() ||
+		showtime.GetAuditorium().GetId() != cgv.CatalogID(cgv.ProviderCGV, "auditorium", showtime.GetAuditorium().GetSourceKey()) ||
+		showtime.GetAuditorium().GetTheaterId() != showtime.GetTheaterId() || showtime.GetAuditorium().GetName() != "6관 (Laser)" ||
+		showtime.GetMovie().GetId() != cgv.CatalogID(cgv.ProviderCGV, "movie", showtime.GetMovie().GetSourceKey()) ||
+		showtime.GetMovie().GetTitle() != "명탐정 코난-하이웨이의 타천사" || showtime.GetMovie().GetPosterUrl() == "" ||
+		showtime.GetEndsAt().AsTime().Sub(showtime.GetStartsAt().AsTime()) != time.Hour+59*time.Minute || !showtime.GetSoldOut() ||
+		!values[0].GetObservedAt().AsTime().Equal(now.Add(time.Second)) {
+		t.Fatalf("showtime = %+v, observed = %v", showtime, values[0].GetObservedAt())
 	}
 }
 
@@ -81,17 +85,17 @@ func TestCGVExecutorCatalogCapture(t *testing.T) {
 		clock: func() time.Time { return now },
 	}
 	task := testAssignmentTask()
-	task.Kind = central.CapabilityCGVCatalogCapture
+	setCatalogTask(task)
 	snapshot, err := executor.CaptureCatalog(context.Background(), task)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !browser.closed || !snapshot.ObservedAt.Equal(now) || len(snapshot.Theaters) != 1 || len(snapshot.Movies) != 1 {
+	if !browser.closed || !snapshot.GetObservedAt().AsTime().Equal(now) || len(snapshot.GetTheaters()) != 1 || len(snapshot.GetMovies()) != 1 {
 		t.Fatalf("catalog = %+v, closed = %t", snapshot, browser.closed)
 	}
-	if snapshot.Theaters[0].ID != central.CatalogID(central.ProviderCGV, "theater", "0056") ||
-		snapshot.Movies[0].ID != central.CatalogID(central.ProviderCGV, "movie", "00001234") {
-		t.Fatalf("catalog identities = %+v %+v", snapshot.Theaters[0], snapshot.Movies[0])
+	if snapshot.GetTheaters()[0].GetId() != cgv.CatalogID(cgv.ProviderCGV, "theater", "0056") ||
+		snapshot.GetMovies()[0].GetId() != cgv.CatalogID(cgv.ProviderCGV, "movie", "00001234") {
+		t.Fatalf("catalog identities = %+v %+v", snapshot.GetTheaters()[0], snapshot.GetMovies()[0])
 	}
 }
 
@@ -121,8 +125,7 @@ func TestCGVExecutorFailuresAndHelpers(t *testing.T) {
 	executor := &CGVExecutor{
 		open: func(context.Context, cgvbrowser.Task) (scheduleBrowser, error) { return nil, errIO }, clock: time.Now,
 	}
-	task := testAssignmentTask()
-	task.Kind = "unsupported"
+	task := &observationpb.AssignmentTask{}
 	if _, err := executor.Capture(context.Background(), task); err == nil {
 		t.Fatal("unsupported task accepted")
 	}
@@ -130,26 +133,26 @@ func TestCGVExecutorFailuresAndHelpers(t *testing.T) {
 		t.Fatal("unsupported catalog task accepted")
 	}
 	task = testAssignmentTask()
-	task.EgressPolicyID = ""
-	if _, err := executor.Capture(context.Background(), task); !errors.Is(err, central.ErrUnsupportedEgressPolicy) {
+	task.GetEgress().ClearManagedScan()
+	if _, err := executor.Capture(context.Background(), task); err == nil {
 		t.Fatalf("missing schedule egress policy error = %v", err)
 	}
-	task.Kind = central.CapabilityCGVCatalogCapture
-	if _, err := executor.CaptureCatalog(context.Background(), task); !errors.Is(err, central.ErrUnsupportedEgressPolicy) {
+	setCatalogTask(task)
+	if _, err := executor.CaptureCatalog(context.Background(), task); err == nil {
 		t.Fatalf("missing catalog egress policy error = %v", err)
 	}
 	task = testAssignmentTask()
-	task.Theater.ProviderID = "other"
+	task.GetSchedule().GetTheater().SetProviderId("other")
 	if _, err := executor.Capture(context.Background(), task); err == nil {
 		t.Fatal("non-CGV theater accepted")
 	}
 	task = testAssignmentTask()
-	task.Theater.ID = "theater_not_canonical"
+	task.GetSchedule().GetTheater().SetId("theater_not_canonical")
 	if _, err := executor.Capture(context.Background(), task); err == nil {
 		t.Fatal("non-canonical theater ID accepted")
 	}
 	task = testAssignmentTask()
-	task.TimeZone = "invalid/time-zone"
+	task.GetSchedule().SetTimeZone("invalid/time-zone")
 	if _, err := executor.Capture(context.Background(), task); err == nil {
 		t.Fatal("invalid time zone accepted")
 	}
@@ -157,7 +160,7 @@ func TestCGVExecutorFailuresAndHelpers(t *testing.T) {
 	if _, err := executor.Capture(context.Background(), task); !errors.Is(err, errIO) {
 		t.Fatalf("browser open error = %v", err)
 	}
-	task.Kind = central.CapabilityCGVCatalogCapture
+	setCatalogTask(task)
 	if _, err := executor.CaptureCatalog(context.Background(), task); !errors.Is(err, errIO) {
 		t.Fatalf("catalog browser open error = %v", err)
 	}
@@ -222,12 +225,11 @@ func TestCGVExecutorFailuresAndHelpers(t *testing.T) {
 
 func TestCGVExecutorDelegatesSeatMapCapture(t *testing.T) {
 	t.Parallel()
-	seatMap := &central.SeatMapVersion{ID: "seat_map"}
+	seatMap := &seatmappb.Snapshot{}
+	seatMap.SetId("seat_map")
 	delegate := &fakeSeatMapExecutor{seatMap: seatMap}
 	executor := &CGVExecutor{seatMap: delegate}
-	task := central.AssignmentTask{
-		Kind: central.CapabilityCGVSeatMapCapture, EgressPolicyID: central.EgressPolicyScanDefault,
-	}
+	task := seatMapAssignmentTask()
 	value, err := executor.CaptureSeatMap(context.Background(), task)
 	if err != nil || value != seatMap || delegate.calls != 1 {
 		t.Fatalf("seat-map delegation = %+v, %v, calls = %d", value, err, delegate.calls)
@@ -235,12 +237,11 @@ func TestCGVExecutorDelegatesSeatMapCapture(t *testing.T) {
 	if _, err := (&CGVExecutor{}).CaptureSeatMap(context.Background(), task); err == nil {
 		t.Fatal("missing seat-map executor accepted")
 	}
-	task.EgressPolicyID = ""
-	if _, err := executor.CaptureSeatMap(context.Background(), task); !errors.Is(err, central.ErrUnsupportedEgressPolicy) {
+	task.GetEgress().ClearManagedScan()
+	if _, err := executor.CaptureSeatMap(context.Background(), task); err == nil {
 		t.Fatalf("missing seat-map egress policy error = %v", err)
 	}
-	task.EgressPolicyID = central.EgressPolicyScanDefault
-	task.Kind = central.CapabilityCGVScheduleCapture
+	task = testAssignmentTask()
 	if _, err := executor.CaptureSeatMap(context.Background(), task); err == nil {
 		t.Fatal("wrong seat-map task kind accepted")
 	}
@@ -248,78 +249,81 @@ func TestCGVExecutorDelegatesSeatMapCapture(t *testing.T) {
 
 func TestCGVExecutorCapturesSeatMapWithStandaloneBrowser(t *testing.T) {
 	t.Parallel()
-	want := &central.SeatMapVersion{ID: "seat_map"}
+	want := &seatmappb.Snapshot{}
+	want.SetId("seat_map")
 	browser := &fakeScheduleBrowser{seatMap: want}
 	executor := &CGVExecutor{open: func(context.Context, cgvbrowser.Task) (scheduleBrowser, error) {
 		return browser, nil
 	}}
-	value, err := executor.CaptureSeatMap(context.Background(), central.AssignmentTask{
-		Kind: central.CapabilityCGVSeatMapCapture, EgressPolicyID: central.EgressPolicyScanDefault,
-	})
+	value, err := executor.CaptureSeatMap(context.Background(), seatMapAssignmentTask())
 	if err != nil || value != want || browser.seatMapCalls != 1 || !browser.closed {
 		t.Fatalf("standalone seat-map capture = %+v, error %v, calls %d, closed %v", value, err, browser.seatMapCalls, browser.closed)
 	}
 	openFailure := &CGVExecutor{open: func(context.Context, cgvbrowser.Task) (scheduleBrowser, error) {
 		return nil, errIO
 	}}
-	if _, err := openFailure.CaptureSeatMap(context.Background(), central.AssignmentTask{
-		Kind: central.CapabilityCGVSeatMapCapture, EgressPolicyID: central.EgressPolicyScanDefault,
-	}); !errors.Is(err, errIO) {
+	if _, err := openFailure.CaptureSeatMap(context.Background(), seatMapAssignmentTask()); !errors.Is(err, errIO) {
 		t.Fatalf("standalone browser open error = %v", err)
 	}
 	unsupported := &CGVExecutor{open: func(context.Context, cgvbrowser.Task) (scheduleBrowser, error) {
 		return &scheduleOnlyBrowser{}, nil
 	}}
-	if _, err := unsupported.CaptureSeatMap(context.Background(), central.AssignmentTask{
-		Kind: central.CapabilityCGVSeatMapCapture, EgressPolicyID: central.EgressPolicyScanDefault,
-	}); err == nil {
+	if _, err := unsupported.CaptureSeatMap(context.Background(), seatMapAssignmentTask()); err == nil {
 		t.Fatal("schedule-only browser accepted for seat-map capture")
 	}
 }
 
 type fakeSeatMapExecutor struct {
-	seatMap *central.SeatMapVersion
+	seatMap *seatmappb.Snapshot
 	calls   int
 }
 
 func (executor *fakeSeatMapExecutor) CaptureSeatMap(
 	context.Context,
-	central.AssignmentTask,
-) (*central.SeatMapVersion, error) {
+	*observationpb.AssignmentTask,
+) (*seatmappb.Snapshot, error) {
 	executor.calls++
 	return executor.seatMap, nil
 }
 
-func testAssignmentTask() central.AssignmentTask {
+func testAssignmentTask() *observationpb.AssignmentTask {
 	sourceKey := "0056"
-	return central.AssignmentTask{
-		Kind: central.CapabilityCGVScheduleCapture,
-		Theater: central.Theater{
-			ID:         central.CatalogID(central.ProviderCGV, "theater", sourceKey),
-			ProviderID: central.ProviderCGV, SourceKey: sourceKey, Region: "서울", Name: "용산아이파크몰",
-		},
-		TargetDates: []string{"2026-08-20"}, Locale: "ko-KR", TimeZone: "Asia/Seoul",
-		EgressPolicyID: "scan_default",
-	}
+	theater := &catalogpb.Theater{}
+	theater.SetId(cgv.CatalogID(cgv.ProviderCGV, "theater", sourceKey))
+	theater.SetProviderId(cgv.ProviderCGV)
+	theater.SetSourceKey(sourceKey)
+	theater.SetRegion("서울")
+	theater.SetName("용산아이파크몰")
+	schedule := &observationpb.ScheduleTask{}
+	schedule.SetTheater(theater)
+	schedule.SetTargetDates([]*commonpb.LocalDate{testLocalDate(2026, 8, 20)})
+	schedule.SetLocale("ko-KR")
+	schedule.SetTimeZone("Asia/Seoul")
+	task := &observationpb.AssignmentTask{}
+	egressPolicy := &commonpb.EgressPolicy{}
+	egressPolicy.SetManagedScan(&commonpb.ManagedScanEgress{})
+	task.SetEgress(egressPolicy)
+	task.SetSchedule(schedule)
+	return task
 }
 
 func canonicalTestShowtime(value cgv.ScheduleShowtime) cgv.ScheduleShowtime {
-	theater := testAssignmentTask().Theater
-	value.ProviderID = central.ProviderCGV
-	value.TheaterID = theater.ID
+	theater := testAssignmentTask().GetSchedule().GetTheater()
+	value.ProviderID = cgv.ProviderCGV
+	value.TheaterID = theater.GetId()
 	value.MovieSourceKey = "00001234"
-	value.MovieID = central.CatalogID(central.ProviderCGV, "movie", value.MovieSourceKey)
-	value.AuditoriumSourceKey = theater.SourceKey + "/0007"
-	value.AuditoriumID = central.CatalogID(central.ProviderCGV, "auditorium", value.AuditoriumSourceKey)
-	value.SourceKey = theater.SourceKey + "/2026-08-12/0007/0003"
-	value.ID = central.CatalogID(central.ProviderCGV, "showtime", value.SourceKey)
+	value.MovieID = cgv.CatalogID(cgv.ProviderCGV, "movie", value.MovieSourceKey)
+	value.AuditoriumSourceKey = theater.GetSourceKey() + "/0007"
+	value.AuditoriumID = cgv.CatalogID(cgv.ProviderCGV, "auditorium", value.AuditoriumSourceKey)
+	value.SourceKey = theater.GetSourceKey() + "/2026-08-12/0007/0003"
+	value.ID = cgv.CatalogID(cgv.ProviderCGV, "showtime", value.SourceKey)
 	return value
 }
 
 type fakeScheduleBrowser struct {
 	captures     []cgv.ScheduleCapture
 	catalog      cgv.CatalogCapture
-	seatMap      *central.SeatMapVersion
+	seatMap      *seatmappb.Snapshot
 	err          error
 	closed       bool
 	seatMapCalls int
@@ -341,8 +345,8 @@ func (browser *fakeScheduleBrowser) CaptureCatalog(context.Context) (cgv.Catalog
 
 func (browser *fakeScheduleBrowser) CaptureSeatMap(
 	context.Context,
-	central.AssignmentTask,
-) (*central.SeatMapVersion, error) {
+	*observationpb.AssignmentTask,
+) (*seatmappb.Snapshot, error) {
 	browser.seatMapCalls++
 	return browser.seatMap, browser.err
 }
@@ -360,3 +364,48 @@ func (*scheduleOnlyBrowser) CaptureSchedules(
 func (*scheduleOnlyBrowser) Close() {}
 
 var errIO = errors.New("I/O failure")
+
+func testLocalDate(year, month, day int32) *commonpb.LocalDate {
+	value := &commonpb.LocalDate{}
+	value.SetYear(year)
+	value.SetMonth(month)
+	value.SetDay(day)
+	return value
+}
+
+func setCatalogTask(task *observationpb.AssignmentTask) {
+	catalog := &observationpb.CatalogTask{}
+	base := testAssignmentTask().GetSchedule()
+	catalog.SetTheater(base.GetTheater())
+	catalog.SetTargetDates(base.GetTargetDates())
+	catalog.SetLocale(base.GetLocale())
+	catalog.SetTimeZone(base.GetTimeZone())
+	task.SetCatalog(catalog)
+}
+
+func seatMapAssignmentTask() *observationpb.AssignmentTask {
+	base := testAssignmentTask()
+	theater := base.GetSchedule().GetTheater()
+	auditorium := &catalogpb.Auditorium{}
+	auditorium.SetId(cgv.CatalogID(cgv.ProviderCGV, "auditorium", "0056/0007"))
+	auditorium.SetTheaterId(theater.GetId())
+	auditorium.SetSourceKey("0056/0007")
+	auditorium.SetName("6관")
+	showtime := &catalogpb.Showtime{}
+	showtime.SetId(cgv.CatalogID(cgv.ProviderCGV, "showtime", "0056/2026-08-12/0007/0003"))
+	showtime.SetProviderId(cgv.ProviderCGV)
+	showtime.SetSourceKey("0056/2026-08-12/0007/0003")
+	showtime.SetTheaterId(theater.GetId())
+	showtime.SetAuditorium(auditorium)
+	showtime.SetMovie(&catalogpb.Movie{})
+	showtime.SetStartsAt(timestamppb.New(time.Date(2026, 8, 12, 19, 0, 0, 0, time.UTC)))
+	showtime.SetEndsAt(timestamppb.New(time.Date(2026, 8, 12, 21, 0, 0, 0, time.UTC)))
+	seatTask := &observationpb.SeatMapTask{}
+	seatTask.SetTheater(theater)
+	seatTask.SetAuditorium(auditorium)
+	seatTask.SetShowtime(showtime)
+	seatTask.SetLocale("ko-KR")
+	seatTask.SetTimeZone("Asia/Seoul")
+	base.SetSeatMap(seatTask)
+	return base
+}

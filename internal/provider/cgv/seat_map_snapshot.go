@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	contracts "github.com/cineko-org/contracts/v3"
+	seatmappb "github.com/cineko-org/contracts/gen/go/cineko/seatmap"
 )
 
 type seatDataEnvelope struct {
@@ -82,45 +82,51 @@ type seatDataSeat struct {
 
 // parseSeatMapLayout converts the provider coordinate system into the stable
 // normalized layout shared by every Cineko reporter.
-func parseSeatMapLayout(body []byte, auditoriumID string) (contracts.SeatMapLayout, error) {
+func parseSeatMapLayout(body []byte, auditoriumID string) (*seatmappb.Layout, error) {
 	var envelope seatDataEnvelope
 	if err := json.Unmarshal(body, &envelope); err != nil {
-		return contracts.SeatMapLayout{}, fmt.Errorf("decode CGV seat map: %w", err)
+		return nil, fmt.Errorf("decode CGV seat map: %w", err)
 	}
 	if envelope.StatusCode != 0 {
-		return contracts.SeatMapLayout{}, fmt.Errorf("CGV seat map failed: %s", envelope.ResultMsg)
+		return nil, fmt.Errorf("CGV seat map failed: %s", envelope.ResultMsg)
 	}
 	if len(envelope.Data.Items) == 0 {
-		return contracts.SeatMapLayout{}, errors.New("CGV seat map contained no layout")
+		return nil, errors.New("CGV seat map contained no layout")
 	}
-	layout := contracts.SeatMapLayout{}
+	layout := &seatmappb.Layout{}
 	labels := make(map[string]struct{})
 	for _, item := range envelope.Data.Items {
-		if err := appendSeatMapItem(&layout, item, auditoriumID, labels); err != nil {
-			return contracts.SeatMapLayout{}, err
+		if err := appendSeatMapItem(layout, item, auditoriumID, labels); err != nil {
+			return nil, err
 		}
 	}
-	sort.Slice(layout.Seats, func(i, j int) bool { return layout.Seats[i].Label < layout.Seats[j].Label })
-	sort.Slice(layout.Zones, func(i, j int) bool {
-		if layout.Zones[i].Code == layout.Zones[j].Code {
-			return layout.Zones[i].Name < layout.Zones[j].Name
+	seats := layout.GetSeats()
+	zones := layout.GetZones()
+	blocks := layout.GetBlocks()
+	sort.Slice(seats, func(i, j int) bool { return seats[i].GetLabel() < seats[j].GetLabel() })
+	sort.Slice(zones, func(i, j int) bool {
+		if zones[i].GetCode() == zones[j].GetCode() {
+			return zones[i].GetName() < zones[j].GetName()
 		}
-		return layout.Zones[i].Code < layout.Zones[j].Code
+		return zones[i].GetCode() < zones[j].GetCode()
 	})
-	sort.Slice(layout.Blocks, func(i, j int) bool {
-		if layout.Blocks[i].Code == layout.Blocks[j].Code {
-			return layout.Blocks[i].Name < layout.Blocks[j].Name
+	sort.Slice(blocks, func(i, j int) bool {
+		if blocks[i].GetCode() == blocks[j].GetCode() {
+			return blocks[i].GetName() < blocks[j].GetName()
 		}
-		return layout.Blocks[i].Code < layout.Blocks[j].Code
+		return blocks[i].GetCode() < blocks[j].GetCode()
 	})
-	if len(layout.Seats) == 0 {
-		return contracts.SeatMapLayout{}, errors.New("CGV seat map contained no seats")
+	layout.SetSeats(seats)
+	layout.SetZones(zones)
+	layout.SetBlocks(blocks)
+	if len(seats) == 0 {
+		return nil, errors.New("CGV seat map contained no seats")
 	}
 	return layout, nil
 }
 
 func appendSeatMapItem(
-	layout *contracts.SeatMapLayout,
+	layout *seatmappb.Layout,
 	item seatDataItem,
 	auditoriumID string,
 	labels map[string]struct{},
@@ -143,16 +149,16 @@ func appendSeatMapItem(
 }
 
 func appendSeatMapSeats(
-	layout *contracts.SeatMapLayout,
+	layout *seatmappb.Layout,
 	item seatDataItem,
 	auditoriumID string,
 	labels map[string]struct{},
 	board seatCoordinateBoard,
 	saleForms map[string]string,
 ) error {
-	start := len(layout.Seats)
+	start := len(layout.GetSeats())
 	for _, source := range item.Seats {
-		number, err := strconv.Atoi(source.Number)
+		number, err := strconv.ParseInt(strings.TrimSpace(source.Number), 10, 32)
 		if err != nil || number < 1 {
 			return fmt.Errorf("parse seat %s%s number", source.Row, source.Number)
 		}
@@ -160,7 +166,7 @@ func appendSeatMapSeats(
 		if row == "" {
 			return errors.New("CGV seat map contains an empty seat row")
 		}
-		label := row + strconv.Itoa(number)
+		label := row + strconv.FormatInt(number, 10)
 		if _, duplicate := labels[label]; duplicate {
 			return fmt.Errorf("duplicate CGV seat label %s", label)
 		}
@@ -174,26 +180,35 @@ func appendSeatMapSeats(
 		if err != nil {
 			return fmt.Errorf("parse CGV seat %s y coordinate: %w", label, err)
 		}
-		layout.Seats = append(layout.Seats, contracts.SeatMapSeat{
-			ID: contracts.SeatID(auditoriumID, label), AuditoriumID: auditoriumID,
-			Label: label, Row: row, Number: number,
-			X: x, Y: y,
-			Type:     seatMapSeatType(source.KindName, saleFormName),
-			ZoneName: source.ZoneName, ZoneKind: source.ZoneKind,
-			SaleFormCode: source.SaleForm, SaleFormName: saleFormName,
-			LeftAisle: source.LeftAisle == "Y", RightAisle: source.RightAisle == "Y",
-			Features: seatMapFeatures(source, saleFormName), SourceLabel: label,
-			SourceSeatKindCode: source.KindCode, SourceSeatKindName: source.KindName,
-		})
+		seat := &seatmappb.Seat{}
+		seat.SetId(SeatID(auditoriumID, label))
+		seat.SetAuditoriumId(auditoriumID)
+		seat.SetLabel(label)
+		seat.SetRow(row)
+		seat.SetNumber(int32(number))
+		seat.SetX(x)
+		seat.SetY(y)
+		seat.SetType(seatMapSeatType(source.KindName, saleFormName))
+		seat.SetZoneName(source.ZoneName)
+		seat.SetZoneKind(source.ZoneKind)
+		seat.SetSaleFormCode(source.SaleForm)
+		seat.SetSaleFormName(saleFormName)
+		seat.SetLeftAisle(source.LeftAisle == "Y")
+		seat.SetRightAisle(source.RightAisle == "Y")
+		seat.SetFeatures(seatMapFeatures(source, saleFormName))
+		seat.SetSourceLabel(label)
+		seat.SetSourceSeatKindCode(source.KindCode)
+		seat.SetSourceSeatKindName(source.KindName)
+		layout.SetSeats(append(layout.GetSeats(), seat))
 	}
-	if item.Board.Count > 0 && item.Board.Count != len(layout.Seats)-start {
+	if item.Board.Count > 0 && item.Board.Count != len(layout.GetSeats())-start {
 		return fmt.Errorf("CGV board count %d differs from parsed seat count", item.Board.Count)
 	}
 	return nil
 }
 
 func appendSeatMapZones(
-	layout *contracts.SeatMapLayout,
+	layout *seatmappb.Layout,
 	sources []seatDataZone,
 	board seatCoordinateBoard,
 ) error {
@@ -206,16 +221,23 @@ func appendSeatMapZones(
 		if err != nil {
 			return fmt.Errorf("parse CGV zone %s bounds: %w", source.Code, err)
 		}
-		layout.Zones = append(layout.Zones, contracts.LayoutZone{
-			Code: source.Code, Name: source.Name, KindCode: source.KindCode, KindName: source.KindName,
-			MinX: minX, MaxX: maxX, MinY: minY, MaxY: maxY, Capacity: capacity,
-		})
+		zone := &seatmappb.LayoutZone{}
+		zone.SetCode(source.Code)
+		zone.SetName(source.Name)
+		zone.SetKindCode(source.KindCode)
+		zone.SetKindName(source.KindName)
+		zone.SetMinX(minX)
+		zone.SetMaxX(maxX)
+		zone.SetMinY(minY)
+		zone.SetMaxY(maxY)
+		zone.SetCapacity(capacity)
+		layout.SetZones(append(layout.GetZones(), zone))
 	}
 	return nil
 }
 
 func appendSeatMapBlocks(
-	layout *contracts.SeatMapLayout,
+	layout *seatmappb.Layout,
 	sources []seatDataBlock,
 	board seatCoordinateBoard,
 ) error {
@@ -224,10 +246,16 @@ func appendSeatMapBlocks(
 		if err != nil {
 			return fmt.Errorf("parse CGV block %s bounds: %w", source.Code, err)
 		}
-		layout.Blocks = append(layout.Blocks, contracts.LayoutBlock{
-			Code: source.Code, Name: source.Name, KindCode: source.KindCode, KindName: source.KindName,
-			MinX: minX, MaxX: maxX, MinY: minY, MaxY: maxY,
-		})
+		block := &seatmappb.LayoutBlock{}
+		block.SetCode(source.Code)
+		block.SetName(source.Name)
+		block.SetKindCode(source.KindCode)
+		block.SetKindName(source.KindName)
+		block.SetMinX(minX)
+		block.SetMaxX(maxX)
+		block.SetMinY(minY)
+		block.SetMaxY(maxY)
+		layout.SetBlocks(append(layout.GetBlocks(), block))
 	}
 	return nil
 }
@@ -336,16 +364,16 @@ func normalizeSeatAxis(value, minimum, maximum float64) (float64, error) {
 	return normalized, nil
 }
 
-func parseOptionalCapacity(value string) (int, error) {
+func parseOptionalCapacity(value string) (int32, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return 0, nil
 	}
-	capacity, err := strconv.Atoi(value)
+	capacity, err := strconv.ParseInt(value, 10, 32)
 	if err != nil || capacity < 0 {
 		return 0, errors.New("capacity is invalid")
 	}
-	return capacity, nil
+	return int32(capacity), nil
 }
 
 func seatMapSeatType(kindName, saleFormName string) string {

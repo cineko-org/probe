@@ -22,7 +22,7 @@ for target in "${targets[@]}"; do
     output="${output}.exe"
   fi
   CGO_ENABLED=0 GOOS="$target_os" GOARCH="$target_arch" \
-	go build -mod=vendor -trimpath \
+	GOWORK=off go build -mod=vendor -trimpath \
       -ldflags "-s -w -X main.version=$version -X main.browserRevision=$browser_revision" \
       -o "$output" ./cmd/cineko-probe
   test -s "$output"
