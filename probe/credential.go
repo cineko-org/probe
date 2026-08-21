@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	central "github.com/cineko-org/contracts/v3"
+	probepb "github.com/cineko-org/contracts/gen/go/cineko/probe"
 	"github.com/cineko-org/probe/v2/internal/bootstrap"
 )
 
@@ -25,7 +25,7 @@ type ClientCredentialConfig struct {
 	Issuer         string
 	Audience       string
 	ClockSkew      time.Duration
-	Registration   central.RegisterProbeRequest
+	Registration   *probepb.RegisterRequest
 }
 
 // NewClientCredentialSource verifies every short-lived Central bootstrap
@@ -49,16 +49,16 @@ func NewClientCredentialSource(
 type VerifyingCredentialSource struct {
 	source       CredentialSource
 	verifier     *bootstrap.Verifier
-	registration central.RegisterProbeRequest
+	registration *probepb.RegisterRequest
 	clock        func() time.Time
 }
 
 func newVerifyingCredentialSource(
 	source CredentialSource,
 	verifier *bootstrap.Verifier,
-	registration central.RegisterProbeRequest,
+	registration *probepb.RegisterRequest,
 ) (*VerifyingCredentialSource, error) {
-	if source == nil || verifier == nil || registration.Kind != "client" {
+	if source == nil || verifier == nil || registration == nil || registration.GetKind().GetClient() == nil {
 		return nil, errors.New("client Probe credential verifier configuration is invalid")
 	}
 	return &VerifyingCredentialSource{

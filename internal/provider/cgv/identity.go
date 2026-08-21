@@ -1,12 +1,30 @@
 package cgv
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
-
-	contracts "github.com/cineko-org/contracts/v3"
 )
+
+const ProviderCGV = "cgv"
+
+func CatalogID(providerID, kind, sourceKey string) string {
+	normalized := strings.ToLower(strings.Join([]string{
+		strings.TrimSpace(providerID), strings.TrimSpace(kind), strings.TrimSpace(sourceKey),
+	}, "\x00"))
+	digest := sha256.Sum256([]byte(normalized))
+	return strings.TrimSpace(kind) + "_" + hex.EncodeToString(digest[:16])
+}
+
+func SeatID(auditoriumID, label string) string {
+	return CatalogID("catalog", "seat", strings.TrimSpace(auditoriumID)+"\x00"+strings.ToUpper(strings.TrimSpace(label)))
+}
+
+func SeatMapVersionID(auditoriumID, layoutHash string) string {
+	return CatalogID("catalog", "seat-map", strings.TrimSpace(auditoriumID)+"\x00"+strings.TrimSpace(layoutHash))
+}
 
 func canonicalProviderDate(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
@@ -34,5 +52,5 @@ func showtimeSourceKey(siteNo, date, auditoriumNo, sequence string) string {
 }
 
 func providerCatalogID(kind, sourceKey string) string {
-	return contracts.CatalogID(contracts.ProviderCGV, kind, sourceKey)
+	return CatalogID(ProviderCGV, kind, sourceKey)
 }

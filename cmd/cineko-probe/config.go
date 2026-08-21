@@ -13,7 +13,9 @@ import (
 	"strings"
 	"time"
 
-	central "github.com/cineko-org/contracts/v3"
+	commonpb "github.com/cineko-org/contracts/gen/go/cineko/common"
+	observationpb "github.com/cineko-org/contracts/gen/go/cineko/observation"
+	probepb "github.com/cineko-org/contracts/gen/go/cineko/probe"
 	"github.com/cineko-org/probe/v2/probe"
 )
 
@@ -29,7 +31,7 @@ type applicationConfig struct {
 	mode         string
 	centralURL   string
 	dataDir      string
-	registration central.RegisterProbeRequest
+	registration *probepb.RegisterRequest
 	credentials  probe.CredentialSource
 }
 
@@ -47,22 +49,32 @@ func loadConfig(stdin io.Reader) (applicationConfig, error) {
 	if err != nil {
 		return applicationConfig{}, err
 	}
-	capabilities := []string{
-		central.CapabilityCGVCatalogCapture,
-		central.CapabilityCGVScheduleCapture,
+	capabilities := []*observationpb.Capability{
+		capabilityCatalogCapture(), capabilityScheduleCapture(),
 	}
 	if mode == "container" {
-		capabilities = append(capabilities, central.CapabilityCGVSeatMapCapture)
+		capabilities = append(capabilities, capabilitySeatMapCapture())
 	}
-	registration := central.RegisterProbeRequest{
-		InstallationID: installationID, Kind: mode,
-		NetworkHint:  strings.TrimSpace(os.Getenv("CINEKO_PROBE_NETWORK_HINT")),
-		Capabilities: capabilities, MaxConcurrency: 1,
-		Runtime: central.Runtime{
-			Version: version, Protocol: central.ProtocolVersion, BrowserRevision: browserRevision,
-			Platform: runtime.GOOS, Arch: runtime.GOARCH,
-		},
+	registration := &probepb.RegisterRequest{}
+	registration.SetInstallationId(installationID)
+	kind := &probepb.ProbeKind{}
+	if mode == "container" {
+		kind.SetContainer(&probepb.ContainerProbe{})
+	} else {
+		kind.SetClient(&probepb.ClientProbe{})
 	}
+	registration.SetKind(kind)
+	if networkHint := strings.TrimSpace(os.Getenv("CINEKO_PROBE_NETWORK_HINT")); networkHint != "" {
+		registration.SetNetworkHint(networkHint)
+	}
+	registration.SetCapabilities(capabilities)
+	registration.SetMaxConcurrency(1)
+	runtimeInfo := &commonpb.Runtime{}
+	runtimeInfo.SetComponentVersion(version)
+	runtimeInfo.SetBrowserRevision(browserRevision)
+	runtimeInfo.SetPlatform(runtime.GOOS)
+	runtimeInfo.SetArchitecture(runtime.GOARCH)
+	registration.SetRuntime(runtimeInfo)
 	credentials, err := credentialSource(mode, stdin, registration)
 	if err != nil {
 		return applicationConfig{}, err
@@ -75,7 +87,7 @@ func loadConfig(stdin io.Reader) (applicationConfig, error) {
 func credentialSource(
 	mode string,
 	stdin io.Reader,
-	registration central.RegisterProbeRequest,
+	registration *probepb.RegisterRequest,
 ) (probe.CredentialSource, error) {
 	switch mode {
 	case "container":
@@ -99,11 +111,29 @@ func credentialSource(
 	}
 	return probe.NewClientCredentialSource(source, probe.ClientCredentialConfig{
 		PublicKeyFiles: strings.TrimSpace(os.Getenv("CINEKO_PROBE_BOOTSTRAP_PUBLIC_KEYS")),
-		Issuer:         envString("CINEKO_PROBE_BOOTSTRAP_ISSUER", central.ProbeBootstrapIssuer),
-		Audience:       envString("CINEKO_PROBE_BOOTSTRAP_AUDIENCE", central.ProbeBootstrapAudience),
+		Issuer:         envString("CINEKO_PROBE_BOOTSTRAP_ISSUER", "cineko-central"),
+		Audience:       envString("CINEKO_PROBE_BOOTSTRAP_AUDIENCE", "cineko-probe"),
 		ClockSkew:      15 * time.Second,
 		Registration:   registration,
 	})
+}
+
+func capabilityScheduleCapture() *observationpb.Capability {
+	capability := &observationpb.Capability{}
+	capability.SetScheduleCapture(&observationpb.ScheduleCapture{})
+	return capability
+}
+
+func capabilityCatalogCapture() *observationpb.Capability {
+	capability := &observationpb.Capability{}
+	capability.SetCatalogCapture(&observationpb.CatalogCapture{})
+	return capability
+}
+
+func capabilitySeatMapCapture() *observationpb.Capability {
+	capability := &observationpb.Capability{}
+	capability.SetSeatMapCapture(&observationpb.SeatMapCapture{})
+	return capability
 }
 
 func resolveInstallationID(dataDir, configured string) (string, error) {

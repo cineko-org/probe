@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	contracts "github.com/cineko-org/contracts/v3"
 )
 
 type scheduleEntry struct {
@@ -231,7 +229,7 @@ func scheduleEntryFromProviderRow(row providerScheduleRow, theater ScheduleTheat
 	auditoriumSource := auditoriumSourceKey(row.SiteNo, row.AuditoriumNo)
 	showtimeSource := showtimeSourceKey(row.SiteNo, row.Date, row.AuditoriumNo, row.Sequence)
 	showtime := ScheduleShowtime{
-		ID: providerCatalogID("showtime", showtimeSource), ProviderID: contracts.ProviderCGV,
+		ID: providerCatalogID("showtime", showtimeSource), ProviderID: ProviderCGV,
 		SourceKey: showtimeSource, TheaterID: theater.ID,
 		MovieID: providerCatalogID("movie", movieSource), MovieSourceKey: movieSource,
 		MovieTitle: row.MovieTitle, PosterURL: "",

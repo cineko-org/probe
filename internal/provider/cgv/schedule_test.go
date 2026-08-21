@@ -4,8 +4,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	contracts "github.com/cineko-org/contracts/v3"
 )
 
 func TestParseScheduleResponseUsesProviderIdentity(t *testing.T) {
@@ -31,9 +29,9 @@ func TestParseScheduleResponseUsesProviderIdentity(t *testing.T) {
 		entry.Showtime.SourceKey != "0056/2026-08-12/0007/0003" {
 		t.Fatalf("source identities = %+v", entry.Showtime)
 	}
-	if entry.Showtime.ID != contracts.CatalogID(contracts.ProviderCGV, "showtime", entry.Showtime.SourceKey) ||
-		entry.Showtime.MovieID != contracts.CatalogID(contracts.ProviderCGV, "movie", entry.Showtime.MovieSourceKey) ||
-		entry.Showtime.AuditoriumID != contracts.CatalogID(contracts.ProviderCGV, "auditorium", entry.Showtime.AuditoriumSourceKey) {
+	if entry.Showtime.ID != CatalogID(ProviderCGV, "showtime", entry.Showtime.SourceKey) ||
+		entry.Showtime.MovieID != CatalogID(ProviderCGV, "movie", entry.Showtime.MovieSourceKey) ||
+		entry.Showtime.AuditoriumID != CatalogID(ProviderCGV, "auditorium", entry.Showtime.AuditoriumSourceKey) {
 		t.Fatalf("canonical identities = %+v", entry.Showtime)
 	}
 }
@@ -86,7 +84,7 @@ func TestProviderIdentitySplitsOnSourceTuple(t *testing.T) {
 			theater := testScheduleTheater()
 			if row.SiteNo != theater.SourceKey {
 				theater.SourceKey = row.SiteNo
-				theater.ID = contracts.CatalogID(contracts.ProviderCGV, "theater", row.SiteNo)
+				theater.ID = CatalogID(ProviderCGV, "theater", row.SiteNo)
 			}
 			entry, err := scheduleEntryFromProviderRow(row, theater)
 			if err != nil {
@@ -222,8 +220,8 @@ func TestDateSelectionLabelsPreserveTodayAndWeekdayVariants(t *testing.T) {
 
 func testScheduleTheater() ScheduleTheater {
 	return ScheduleTheater{
-		ID:         contracts.CatalogID(contracts.ProviderCGV, "theater", "0056"),
-		ProviderID: contracts.ProviderCGV, SourceKey: "0056", Region: "서울", Name: "용산아이파크몰",
+		ID:         CatalogID(ProviderCGV, "theater", "0056"),
+		ProviderID: ProviderCGV, SourceKey: "0056", Region: "서울", Name: "용산아이파크몰",
 	}
 }
 

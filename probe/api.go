@@ -3,17 +3,20 @@ package probe
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
-	central "github.com/cineko-org/contracts/v3"
+	"buf.build/go/protovalidate"
+	commonpb "github.com/cineko-org/contracts/gen/go/cineko/common"
+	observationpb "github.com/cineko-org/contracts/gen/go/cineko/observation"
+	probepb "github.com/cineko-org/contracts/gen/go/cineko/probe"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 const maxResponseBody = 4 << 20
@@ -36,21 +39,17 @@ func (apiError *APIError) Error() string {
 }
 
 type API interface {
-	Register(context.Context, string, central.RegisterProbeRequest) (central.RegisterProbeResponse, error)
-	HeartbeatProbe(context.Context, Session, central.ProbeHeartbeatRequest) (central.ProbeHeartbeatResponse, error)
+	Register(context.Context, string, *probepb.RegisterRequest) (*probepb.RegisterResponse, error)
+	HeartbeatProbe(context.Context, Session, *probepb.HeartbeatRequest) (*probepb.HeartbeatResponse, error)
 	DisconnectProbe(context.Context, Session) error
-	ClaimAssignment(context.Context, Session) (*central.ClaimAssignmentResponse, error)
-	HeartbeatAssignment(
-		context.Context,
-		Session,
-		central.ClaimAssignmentResponse,
-	) (central.AssignmentHeartbeatResponse, error)
+	ClaimAssignment(context.Context, Session) (*probepb.ClaimAssignmentResponse, error)
+	HeartbeatAssignment(context.Context, Session, *probepb.AssignmentLease) (*probepb.HeartbeatAssignmentResponse, error)
 	CommitResult(
 		context.Context,
 		Session,
-		central.ClaimAssignmentResponse,
-		central.AssignmentResult,
-	) (central.ResultReceipt, error)
+		*probepb.AssignmentLease,
+		*observationpb.AssignmentResult,
+	) (*observationpb.ResultReceipt, error)
 }
 
 type Session struct {
@@ -85,11 +84,15 @@ func NewHTTPAPI(rawBaseURL string, client *http.Client) (*HTTPAPI, error) {
 func (api *HTTPAPI) Register(
 	ctx context.Context,
 	credential string,
-	input central.RegisterProbeRequest,
-) (central.RegisterProbeResponse, error) {
-	var output central.RegisterProbeResponse
+	input *probepb.RegisterRequest,
+) (*probepb.RegisterResponse, error) {
+	output := &probepb.RegisterResponse{}
+	installationID := ""
+	if input != nil {
+		installationID = input.GetInstallationId()
+	}
 	err := api.request(
-		ctx, http.MethodPost, "/v1/probes/register", credential, input.InstallationID, "", input, &output,
+		ctx, http.MethodPost, "/v1/probes/register", credential, installationID, "", input, output,
 	)
 	return output, err
 }
@@ -97,12 +100,12 @@ func (api *HTTPAPI) Register(
 func (api *HTTPAPI) HeartbeatProbe(
 	ctx context.Context,
 	session Session,
-	input central.ProbeHeartbeatRequest,
-) (central.ProbeHeartbeatResponse, error) {
-	var output central.ProbeHeartbeatResponse
+	input *probepb.HeartbeatRequest,
+) (*probepb.HeartbeatResponse, error) {
+	output := &probepb.HeartbeatResponse{}
 	err := api.request(
 		ctx, http.MethodPut, "/v1/probes/"+url.PathEscape(session.ProbeID)+"/heartbeat",
-		session.AccessToken, "", "", input, &output,
+		session.AccessToken, "", "", input, output,
 	)
 	return output, err
 }
@@ -117,27 +120,27 @@ func (api *HTTPAPI) DisconnectProbe(ctx context.Context, session Session) error 
 func (api *HTTPAPI) ClaimAssignment(
 	ctx context.Context,
 	session Session,
-) (*central.ClaimAssignmentResponse, error) {
-	var output central.ClaimAssignmentResponse
+) (*probepb.ClaimAssignmentResponse, error) {
+	output := &probepb.ClaimAssignmentResponse{}
 	err := api.request(
 		ctx, http.MethodPost, "/v1/probes/"+url.PathEscape(session.ProbeID)+"/assignments:claim",
-		session.AccessToken, "", "", nil, &output,
+		session.AccessToken, "", "", nil, output,
 	)
 	if errors.Is(err, errNoContent) {
 		return nil, nil
 	}
-	return &output, err
+	return output, err
 }
 
 func (api *HTTPAPI) HeartbeatAssignment(
 	ctx context.Context,
 	session Session,
-	assignment central.ClaimAssignmentResponse,
-) (central.AssignmentHeartbeatResponse, error) {
-	var output central.AssignmentHeartbeatResponse
+	assignment *probepb.AssignmentLease,
+) (*probepb.HeartbeatAssignmentResponse, error) {
+	output := &probepb.HeartbeatAssignmentResponse{}
 	err := api.request(
-		ctx, http.MethodPut, "/v1/assignments/"+url.PathEscape(assignment.AssignmentID)+"/heartbeat",
-		session.AccessToken, "", assignment.LeaseToken, nil, &output,
+		ctx, http.MethodPut, "/v1/assignments/"+url.PathEscape(assignment.GetAssignmentId())+"/heartbeat",
+		session.AccessToken, "", assignment.GetLeaseToken(), nil, output,
 	)
 	return output, err
 }
@@ -145,13 +148,13 @@ func (api *HTTPAPI) HeartbeatAssignment(
 func (api *HTTPAPI) CommitResult(
 	ctx context.Context,
 	session Session,
-	assignment central.ClaimAssignmentResponse,
-	result central.AssignmentResult,
-) (central.ResultReceipt, error) {
-	var output central.ResultReceipt
+	assignment *probepb.AssignmentLease,
+	result *observationpb.AssignmentResult,
+) (*observationpb.ResultReceipt, error) {
+	output := &observationpb.ResultReceipt{}
 	err := api.request(
-		ctx, http.MethodPut, "/v1/assignments/"+url.PathEscape(assignment.AssignmentID)+"/result",
-		session.AccessToken, result.RunID, assignment.LeaseToken, result, &output,
+		ctx, http.MethodPut, "/v1/assignments/"+url.PathEscape(assignment.GetAssignmentId())+"/result",
+		session.AccessToken, result.GetRunId(), assignment.GetLeaseToken(), result, output,
 	)
 	return output, err
 }
@@ -165,8 +168,8 @@ func (api *HTTPAPI) request(
 	bearer string,
 	idempotencyKey string,
 	leaseToken string,
-	input any,
-	output any,
+	input proto.Message,
+	output proto.Message,
 ) error {
 	request, err := api.newRequest(ctx, method, path, bearer, idempotencyKey, leaseToken, input)
 	if err != nil {
@@ -199,7 +202,7 @@ func (api *HTTPAPI) request(
 		}
 		return nil
 	}
-	if err := decodeJSON(contents, output); err != nil {
+	if err := decodeProtoJSON(contents, output); err != nil {
 		return fmt.Errorf("decode Central API response: %w", err)
 	}
 	return nil
@@ -212,11 +215,11 @@ func (api *HTTPAPI) newRequest(
 	bearer string,
 	idempotencyKey string,
 	leaseToken string,
-	input any,
+	input proto.Message,
 ) (*http.Request, error) {
 	var body io.Reader
 	if input != nil {
-		encoded, err := json.Marshal(input)
+		encoded, err := protojson.MarshalOptions{UseProtoNames: false}.Marshal(input)
 		if err != nil {
 			return nil, fmt.Errorf("encode Central API request: %w", err)
 		}
@@ -229,7 +232,6 @@ func (api *HTTPAPI) newRequest(
 		return nil, fmt.Errorf("create Central API request: %w", err)
 	}
 	request.Header.Set("Accept", "application/json")
-	request.Header.Set("X-Cineko-Protocol", strconv.Itoa(central.ProtocolVersion))
 	if input != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
@@ -246,20 +248,14 @@ func (api *HTTPAPI) newRequest(
 }
 
 func decodeAPIError(response *http.Response, contents []byte) error {
-	var envelope struct {
-		Error struct {
-			Code      string `json:"code"`
-			Message   string `json:"message"`
-			Retryable bool   `json:"retryable"`
-			RequestID string `json:"requestId"`
-		} `json:"error"`
-	}
-	if err := decodeJSON(contents, &envelope); err != nil || strings.TrimSpace(envelope.Error.Code) == "" {
+	envelope := &commonpb.APIErrorResponse{}
+	if err := decodeProtoJSON(contents, envelope); err != nil || envelope.GetError() == nil ||
+		strings.TrimSpace(envelope.GetError().GetCode()) == "" {
 		return fmt.Errorf("central API returned HTTP %d with an invalid error envelope", response.StatusCode)
 	}
 	apiError := &APIError{
-		StatusCode: response.StatusCode, Code: envelope.Error.Code, Message: envelope.Error.Message,
-		Retryable: envelope.Error.Retryable, RequestID: envelope.Error.RequestID,
+		StatusCode: response.StatusCode, Code: envelope.GetError().GetCode(), Message: envelope.GetError().GetMessage(),
+		Retryable: envelope.GetError().GetRetryable(), RequestID: envelope.GetError().GetRequestId(),
 	}
 	switch apiError.Code {
 	case "unauthorized":
@@ -271,13 +267,12 @@ func decodeAPIError(response *http.Response, contents []byte) error {
 	}
 }
 
-func decodeJSON(contents []byte, output any) error {
-	decoder := json.NewDecoder(bytes.NewReader(contents))
-	if err := decoder.Decode(output); err != nil {
+func decodeProtoJSON(contents []byte, output proto.Message) error {
+	if err := (protojson.UnmarshalOptions{DiscardUnknown: false}).Unmarshal(contents, output); err != nil {
 		return err
 	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return errors.New("response must contain one JSON value")
+	if err := protovalidate.Validate(output); err != nil {
+		return err
 	}
 	return nil
 }

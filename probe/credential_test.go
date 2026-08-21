@@ -15,7 +15,9 @@ import (
 	"testing"
 	"time"
 
+	probepb "github.com/cineko-org/contracts/gen/go/cineko/probe"
 	"github.com/cineko-org/probe/v2/internal/bootstrap"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestCredentialSources(t *testing.T) {
@@ -71,11 +73,12 @@ func TestVerifyingCredentialSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	registration := testRegistration()
-	registration.Kind = "client"
+	registration := clientRegistration()
 	ticket, err := signer.Issue(bootstrap.Claims{
-		UserID: "user", TicketID: "ticket", InstallationID: registration.InstallationID, DeviceID: "device",
-		Kind: "client", Capabilities: registration.Capabilities, MaxConcurrency: 1, Runtime: registration.Runtime,
+		UserID: "user", TicketID: "ticket", InstallationID: registration.GetInstallationId(), DeviceID: "device",
+		Kind: "client", Capabilities: []string{"cgv.schedule.capture"}, MaxConcurrency: 1,
+		RuntimeVersion: registration.GetRuntime().GetComponentVersion(), BrowserRevision: registration.GetRuntime().GetBrowserRevision(),
+		Platform: registration.GetRuntime().GetPlatform(), Architecture: registration.GetRuntime().GetArchitecture(),
 	}, time.Minute)
 	if err != nil {
 		t.Fatal(err)
@@ -92,8 +95,13 @@ func TestVerifyingCredentialSource(t *testing.T) {
 	if _, err := newVerifyingCredentialSource(StaticCredential(ticket), nil, registration); err == nil {
 		t.Fatal("nil ticket verifier accepted")
 	}
-	container := registration
-	container.Kind = "container"
+	container, ok := proto.Clone(registration).(*probepb.RegisterRequest)
+	if !ok {
+		t.Fatal("cloned registration has unexpected type")
+	}
+	kind := &probepb.ProbeKind{}
+	kind.SetContainer(&probepb.ContainerProbe{})
+	container.SetKind(kind)
 	if _, err := newVerifyingCredentialSource(StaticCredential(ticket), verifier, container); err == nil {
 		t.Fatal("container registration accepted by client verifier")
 	}
@@ -132,8 +140,7 @@ func TestClientCredentialSourceLoadsPublicKeys(t *testing.T) {
 	if err := os.WriteFile(keyPath, contents, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	registration := testRegistration()
-	registration.Kind = "client"
+	registration := clientRegistration()
 	config := ClientCredentialConfig{
 		PublicKeyFiles: "primary=" + keyPath,
 		Issuer:         "issuer",

@@ -10,7 +10,13 @@ import (
 	"testing"
 	"time"
 
-	central "github.com/cineko-org/contracts/v3"
+	catalogpb "github.com/cineko-org/contracts/gen/go/cineko/catalog"
+	commonpb "github.com/cineko-org/contracts/gen/go/cineko/common"
+	observationpb "github.com/cineko-org/contracts/gen/go/cineko/observation"
+	probepb "github.com/cineko-org/contracts/gen/go/cineko/probe"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestAPIErrorFormatsStableMetadata(t *testing.T) {
@@ -23,26 +29,51 @@ func TestAPIErrorFormatsStableMetadata(t *testing.T) {
 func TestHTTPAPIProbeLifecycleContract(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.Header.Get("X-Cineko-Protocol") != central.ProtocolHeaderValue() ||
-			request.Header.Get("Accept") != "application/json" {
+		if request.Header.Get("Accept") != "application/json" {
 			t.Errorf("common headers = %v", request.Header)
 		}
 		switch request.URL.Path {
 		case "/v1/probes/register":
 			assertRequestHeaders(t, request, "bootstrap", "install_01", "")
-			writeJSON(writer, `{"probeId":"probe_01","networkId":"network_01","accessToken":"access_01","tokenExpiresAt":"2026-08-11T05:00:00Z","heartbeatIntervalSeconds":30}`)
+			response := &probepb.RegisterResponse{}
+			response.SetProbeId("probe_01")
+			response.SetNetworkId("network_01")
+			response.SetAccessToken("access_01")
+			response.SetTokenExpiresAt(timestamppb.New(time.Date(2026, 8, 11, 5, 0, 0, 0, time.UTC)))
+			response.SetHeartbeatIntervalSeconds(30)
+			writeProtoJSON(t, writer, response)
 		case "/v1/probes/probe_01/heartbeat":
 			assertRequestHeaders(t, request, "access_01", "", "")
-			writeJSON(writer, `{"serverTime":"2026-08-10T05:00:00Z","drain":false,"minimumRuntimeVersion":"1.0.0","minimumBrowserRevision":"1228"}`)
+			response := &probepb.HeartbeatResponse{}
+			response.SetServerTime(timestamppb.New(time.Date(2026, 8, 10, 5, 0, 0, 0, time.UTC)))
+			response.SetMinimumRuntimeVersion("1.0.0")
+			response.SetMinimumBrowserRevision("1228")
+			writeProtoJSON(t, writer, response)
 		case "/v1/probes/probe_01/assignments:claim":
 			assertRequestHeaders(t, request, "access_01", "", "")
-			writeJSON(writer, `{"assignmentId":"assignment_01","leaseToken":"lease_01","leaseExpiresAt":"2026-08-10T05:02:00Z","notBefore":"2026-08-10T05:00:00Z","deadline":"2026-08-10T05:10:00Z","task":{"kind":"cgv.schedule.capture.v2","theater":{"id":"theater_01","providerId":"cgv","sourceKey":"서울/용산아이파크몰","region":"서울","name":"용산아이파크몰"},"targetDates":["2026-08-20"],"locale":"ko-KR","timeZone":"Asia/Seoul","egressPolicyId":"scan_default"}}`)
+			assignment := &probepb.AssignmentLease{}
+			assignment.SetAssignmentId("assignment_01")
+			assignment.SetLeaseToken("lease_01")
+			assignment.SetLeaseExpiresAt(timestamppb.New(time.Date(2026, 8, 10, 5, 2, 0, 0, time.UTC)))
+			assignment.SetNotBefore(timestamppb.New(time.Date(2026, 8, 10, 5, 0, 0, 0, time.UTC)))
+			assignment.SetDeadline(timestamppb.New(time.Date(2026, 8, 10, 5, 10, 0, 0, time.UTC)))
+			assignment.SetTask(scheduleTaskForTest())
+			response := &probepb.ClaimAssignmentResponse{}
+			response.SetAssignment(assignment)
+			writeProtoJSON(t, writer, response)
 		case "/v1/assignments/assignment_01/heartbeat":
 			assertRequestHeaders(t, request, "access_01", "", "lease_01")
-			writeJSON(writer, `{"leaseExpiresAt":"2026-08-10T05:03:00Z"}`)
+			response := &probepb.HeartbeatAssignmentResponse{}
+			response.SetLeaseExpiresAt(timestamppb.New(time.Date(2026, 8, 10, 5, 3, 0, 0, time.UTC)))
+			writeProtoJSON(t, writer, response)
 		case "/v1/assignments/assignment_01/result":
 			assertRequestHeaders(t, request, "access_01", "run_01", "lease_01")
-			writeJSON(writer, `{"assignmentId":"assignment_01","runId":"run_01","contentHash":"hash","status":"completed"}`)
+			receipt := &observationpb.ResultReceipt{}
+			receipt.SetAssignmentId("assignment_01")
+			receipt.SetRunId("run_01")
+			receipt.SetContentHash("hash")
+			receipt.SetAccepted(&observationpb.Accepted{})
+			writeProtoJSON(t, writer, receipt)
 		case "/v1/probes/probe_01/disconnect":
 			assertRequestHeaders(t, request, "access_01", "", "")
 			writer.WriteHeader(http.StatusNoContent)
@@ -60,28 +91,37 @@ func TestHTTPAPIProbeLifecycleContract(t *testing.T) {
 	}
 	registration := testRegistration()
 	registered, err := api.Register(context.Background(), "bootstrap", registration)
-	if err != nil || registered.ProbeID != "probe_01" {
+	if err != nil || registered.GetProbeId() != "probe_01" {
 		t.Fatalf("registration = %+v, %v", registered, err)
 	}
-	session := Session{ProbeID: registered.ProbeID, AccessToken: registered.AccessToken}
-	heartbeat, err := api.HeartbeatProbe(context.Background(), session, central.ProbeHeartbeatRequest{
-		AvailableSlots: 1, Health: "healthy",
-	})
-	if err != nil || heartbeat.MinimumBrowserRevision != "1228" {
+	session := Session{ProbeID: registered.GetProbeId(), AccessToken: registered.GetAccessToken()}
+	heartbeatRequest := &probepb.HeartbeatRequest{}
+	heartbeatRequest.SetAvailableSlots(1)
+	health := &probepb.ProbeHealth{}
+	health.SetHealthy(&probepb.Healthy{})
+	heartbeatRequest.SetHealth(health)
+	heartbeat, err := api.HeartbeatProbe(context.Background(), session, heartbeatRequest)
+	if err != nil || heartbeat.GetMinimumBrowserRevision() != "1228" {
 		t.Fatalf("heartbeat = %+v, %v", heartbeat, err)
 	}
-	assignment, err := api.ClaimAssignment(context.Background(), session)
-	if err != nil || assignment == nil || assignment.AssignmentID != "assignment_01" {
-		t.Fatalf("claim = %+v, %v", assignment, err)
+	assignmentResponse, err := api.ClaimAssignment(context.Background(), session)
+	assignment := assignmentResponse.GetAssignment()
+	if err != nil || assignment == nil || assignment.GetAssignmentId() != "assignment_01" {
+		t.Fatalf("claim = %+v, %v", assignmentResponse, err)
 	}
-	extension, err := api.HeartbeatAssignment(context.Background(), session, *assignment)
-	if err != nil || extension.LeaseExpiresAt.Minute() != 3 {
+	extension, err := api.HeartbeatAssignment(context.Background(), session, assignment)
+	if err != nil || extension.GetLeaseExpiresAt().AsTime().Minute() != 3 {
 		t.Fatalf("lease extension = %+v, %v", extension, err)
 	}
-	receipt, err := api.CommitResult(context.Background(), session, *assignment, central.AssignmentResult{
-		RunID: "run_01", Status: "completed", StartedAt: time.Now(), FinishedAt: time.Now(),
-	})
-	if err != nil || receipt.RunID != "run_01" {
+	result := &observationpb.AssignmentResult{}
+	result.SetRunId("run_01")
+	result.SetStartedAt(timestamppb.Now())
+	result.SetFinishedAt(timestamppb.Now())
+	completed := &observationpb.Completed{}
+	completed.SetCaptures([]*observationpb.Capture{})
+	result.SetCompleted(completed)
+	receipt, err := api.CommitResult(context.Background(), session, assignment, result)
+	if err != nil || receipt.GetRunId() != "run_01" {
 		t.Fatalf("receipt = %+v, %v", receipt, err)
 	}
 	if err := api.DisconnectProbe(context.Background(), session); err != nil {
@@ -96,14 +136,11 @@ func TestHTTPAPIEmptyClaimAndErrors(t *testing.T) {
 		case "empty":
 			writer.WriteHeader(http.StatusNoContent)
 		case "unauthorized":
-			writer.WriteHeader(http.StatusUnauthorized)
-			_, _ = writer.Write([]byte(`{"error":{"code":"unauthorized","message":"no","retryable":false,"requestId":"req_01"}}`))
+			writeAPIError(t, writer, http.StatusUnauthorized, "unauthorized", "no", false, "req_01")
 		case "expired":
-			writer.WriteHeader(http.StatusConflict)
-			_, _ = writer.Write([]byte(`{"error":{"code":"lease_expired","message":"expired","retryable":false,"requestId":"req_02"}}`))
+			writeAPIError(t, writer, http.StatusConflict, "lease_expired", "expired", false, "req_02")
 		case "retryable":
-			writer.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = writer.Write([]byte(`{"error":{"code":"unavailable","message":"later","retryable":true,"requestId":"req_03"}}`))
+			writeAPIError(t, writer, http.StatusServiceUnavailable, "unavailable", "later", true, "req_03")
 		case "bad-error":
 			writer.WriteHeader(http.StatusInternalServerError)
 			_, _ = writer.Write([]byte(`not-json`))
@@ -127,7 +164,7 @@ func TestHTTPAPIEmptyClaimAndErrors(t *testing.T) {
 	}
 	for name, want := range map[string]error{"unauthorized": ErrUnauthorized, "expired": ErrLeaseExpired} {
 		api.baseURL.RawQuery = "case=" + name
-		_, err := api.CommitResult(context.Background(), Session{}, central.ClaimAssignmentResponse{}, central.AssignmentResult{})
+		_, err := api.CommitResult(context.Background(), Session{}, &probepb.AssignmentLease{}, &observationpb.AssignmentResult{})
 		if !errors.Is(err, want) {
 			t.Fatalf("%s error = %v", name, err)
 		}
@@ -172,27 +209,13 @@ func TestHTTPAPIValidationAndTransportFailures(t *testing.T) {
 		t.Fatalf("transport error = %v", err)
 	}
 	api.client.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return &http.Response{
-			StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(errorReader{}),
-		}, nil
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(errorReader{})}, nil
 	})
 	if _, err := api.Register(context.Background(), "token", testRegistration()); !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Fatalf("response read error = %v", err)
 	}
-	if _, err := api.newRequest(
-		context.Background(), "bad\nmethod", "/", "", "", "", nil,
-	); err == nil {
+	if _, err := api.newRequest(context.Background(), "bad\nmethod", "/", "", "", "", nil); err == nil {
 		t.Fatal("invalid HTTP method accepted")
-	}
-	if _, err := api.newRequest(
-		context.Background(), http.MethodPost, "/", "", "", "", make(chan int),
-	); err == nil {
-		t.Fatal("unencodable API request accepted")
-	}
-	if err := api.request(
-		context.Background(), "bad\nmethod", "/", "", "", "", nil, nil,
-	); err == nil {
-		t.Fatal("request creation error was ignored")
 	}
 	api.client.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(nil))}, nil
@@ -200,14 +223,11 @@ func TestHTTPAPIValidationAndTransportFailures(t *testing.T) {
 	if err := api.request(context.Background(), http.MethodGet, "/", "", "", "", nil, nil); err != nil {
 		t.Fatalf("empty successful response = %v", err)
 	}
-	if err := decodeJSON([]byte(`{} {}`), &map[string]any{}); err == nil {
+	if err := decodeProtoJSON([]byte(`{} {}`), &probepb.RegisterResponse{}); err == nil {
 		t.Fatal("multiple response values accepted")
 	}
-	var compatible struct {
-		Known string `json:"known"`
-	}
-	if err := decodeJSON([]byte(`{"known":"value","additiveOptionalField":true}`), &compatible); err != nil || compatible.Known != "value" {
-		t.Fatalf("additive response field broke minor-version compatibility: %+v, %v", compatible, err)
+	if err := decodeProtoJSON([]byte(`{"probe_id":"probe","unknown":true}`), &probepb.RegisterResponse{}); err == nil {
+		t.Fatal("unknown inbound field accepted")
 	}
 }
 
@@ -220,19 +240,70 @@ func assertRequestHeaders(t *testing.T, request *http.Request, bearer, idempoten
 	}
 }
 
-func writeJSON(writer http.ResponseWriter, value string) {
+func writeProtoJSON(t *testing.T, writer http.ResponseWriter, message proto.Message) {
+	t.Helper()
 	writer.Header().Set("Content-Type", "application/json")
-	_, _ = writer.Write([]byte(value))
+	encoded, err := (protojson.MarshalOptions{UseProtoNames: false}).Marshal(message)
+	if err != nil {
+		t.Errorf("encode response: %v", err)
+		return
+	}
+	_, _ = writer.Write(encoded)
 }
 
-func testRegistration() central.RegisterProbeRequest {
-	return central.RegisterProbeRequest{
-		InstallationID: "install_01", Kind: "container", Capabilities: []string{central.CapabilityCGVScheduleCapture},
-		MaxConcurrency: 1,
-		Runtime: central.Runtime{
-			Version: "1.0.0", Protocol: central.ProtocolVersion, BrowserRevision: "1228", Platform: "linux", Arch: "amd64",
-		},
-	}
+func writeAPIError(t *testing.T, writer http.ResponseWriter, status int, code, message string, retryable bool, requestID string) {
+	writer.WriteHeader(status)
+	errorValue := &commonpb.APIError{}
+	errorValue.SetCode(code)
+	errorValue.SetMessage(message)
+	errorValue.SetRetryable(retryable)
+	errorValue.SetRequestId(requestID)
+	response := &commonpb.APIErrorResponse{}
+	response.SetError(errorValue)
+	writeProtoJSON(t, writer, response)
+}
+
+func scheduleTaskForTest() *observationpb.AssignmentTask {
+	theater := &catalogpb.Theater{}
+	theater.SetId("theater_01")
+	theater.SetProviderId("cgv")
+	theater.SetSourceKey("서울/용산아이파크몰")
+	theater.SetRegion("서울")
+	theater.SetName("용산아이파크몰")
+	date := &commonpb.LocalDate{}
+	date.SetYear(2026)
+	date.SetMonth(8)
+	date.SetDay(20)
+	schedule := &observationpb.ScheduleTask{}
+	schedule.SetTheater(theater)
+	schedule.SetTargetDates([]*commonpb.LocalDate{date})
+	schedule.SetLocale("ko-KR")
+	schedule.SetTimeZone("Asia/Seoul")
+	egress := &commonpb.EgressPolicy{}
+	egress.SetManagedScan(&commonpb.ManagedScanEgress{})
+	task := &observationpb.AssignmentTask{}
+	task.SetEgress(egress)
+	task.SetSchedule(schedule)
+	return task
+}
+
+func testRegistration() *probepb.RegisterRequest {
+	registration := &probepb.RegisterRequest{}
+	registration.SetInstallationId("install_01")
+	kind := &probepb.ProbeKind{}
+	kind.SetContainer(&probepb.ContainerProbe{})
+	registration.SetKind(kind)
+	capability := &observationpb.Capability{}
+	capability.SetScheduleCapture(&observationpb.ScheduleCapture{})
+	registration.SetCapabilities([]*observationpb.Capability{capability})
+	registration.SetMaxConcurrency(1)
+	runtime := &commonpb.Runtime{}
+	runtime.SetComponentVersion("1.0.0")
+	runtime.SetBrowserRevision("1228")
+	runtime.SetPlatform("linux")
+	runtime.SetArchitecture("amd64")
+	registration.SetRuntime(runtime)
+	return registration
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

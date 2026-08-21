@@ -13,11 +13,15 @@ import (
 	"sync"
 	"time"
 
-	central "github.com/cineko-org/contracts/v3"
+	catalogpb "github.com/cineko-org/contracts/gen/go/cineko/catalog"
+	observationpb "github.com/cineko-org/contracts/gen/go/cineko/observation"
+	probepb "github.com/cineko-org/contracts/gen/go/cineko/probe"
+	seatmappb "github.com/cineko-org/contracts/gen/go/cineko/seatmap"
 	"github.com/cineko-org/probe/v2/internal/telemetry"
 
 	"golang.org/x/mod/semver"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -34,21 +38,21 @@ var (
 )
 
 type Executor interface {
-	Capture(context.Context, central.AssignmentTask) ([]central.Capture, error)
+	Capture(context.Context, *observationpb.AssignmentTask) ([]*observationpb.Capture, error)
 }
 
 type catalogExecutor interface {
-	CaptureCatalog(context.Context, central.AssignmentTask) (*central.CatalogSnapshot, error)
+	CaptureCatalog(context.Context, *observationpb.AssignmentTask) (*catalogpb.CatalogSnapshot, error)
 }
 
 type SeatMapExecutor interface {
-	CaptureSeatMap(context.Context, central.AssignmentTask) (*central.SeatMapVersion, error)
+	CaptureSeatMap(context.Context, *observationpb.AssignmentTask) (*seatmappb.Snapshot, error)
 }
 
 type executionOutput struct {
-	captures []central.Capture
-	catalog  *central.CatalogSnapshot
-	seatMap  *central.SeatMapVersion
+	captures []*observationpb.Capture
+	catalog  *catalogpb.CatalogSnapshot
+	seatMap  *seatmappb.Snapshot
 }
 
 type captureResult struct {
@@ -57,13 +61,13 @@ type captureResult struct {
 }
 
 type Config struct {
-	Registration          central.RegisterProbeRequest
+	Registration          *probepb.RegisterRequest
 	ClaimMinimum          time.Duration
 	ClaimMaximum          time.Duration
 	ReconnectMinimum      time.Duration
 	ReconnectMaximum      time.Duration
 	HeartbeatFailureLimit int
-	AvailableCapabilities func() []string
+	AvailableCapabilities func() []*observationpb.Capability
 	Logger                *slog.Logger
 }
 
@@ -87,10 +91,10 @@ func NewRuntime(api API, credentials CredentialSource, executor Executor, config
 	if api == nil || credentials == nil || executor == nil {
 		return nil, errors.New("probe API, credential source and executor are required")
 	}
-	if config.Registration.MaxConcurrency != 1 {
+	if config.Registration == nil || config.Registration.GetMaxConcurrency() != 1 {
 		return nil, errors.New("probe runtime currently requires maxConcurrency=1")
 	}
-	if config.Registration.Kind != "container" && config.Registration.Kind != "client" {
+	if config.Registration.GetKind().GetContainer() == nil && config.Registration.GetKind().GetClient() == nil {
 		return nil, errors.New("probe runtime kind must be container or client")
 	}
 	defaultDuration(&config.ClaimMinimum, DefaultClaimMinimum)
@@ -197,11 +201,11 @@ func (runtime *Runtime) register(ctx context.Context) (Session, time.Duration, e
 	for {
 		response, err := runtime.api.Register(ctx, credential, runtime.config.Registration)
 		if err == nil {
-			if response.ProbeID == "" || response.AccessToken == "" || response.HeartbeatIntervalSeconds <= 0 {
+			if response == nil || response.GetProbeId() == "" || response.GetAccessToken() == "" || response.GetHeartbeatIntervalSeconds() <= 0 {
 				return Session{}, 0, errors.New("central returned an invalid Probe registration")
 			}
-			return Session{ProbeID: response.ProbeID, AccessToken: response.AccessToken},
-				time.Duration(response.HeartbeatIntervalSeconds) * time.Second, nil
+			return Session{ProbeID: response.GetProbeId(), AccessToken: response.GetAccessToken()},
+				time.Duration(response.GetHeartbeatIntervalSeconds()) * time.Second, nil
 		}
 		if !retryable(err) {
 			return Session{}, 0, err
@@ -288,19 +292,22 @@ func (runtime *Runtime) sendProbeHeartbeat(ctx context.Context, session Session)
 		return err
 	}
 	runtime.mu.Lock()
-	runtime.remoteDrain = response.Drain
+	runtime.remoteDrain = response.GetDrain()
 	runtime.mu.Unlock()
 	return nil
 }
 
-func (runtime *Runtime) validateMinimumPolicy(response central.ProbeHeartbeatResponse) error {
-	runtimeVersion := runtime.config.Registration.Runtime.Version
-	browserRevision := runtime.config.Registration.Runtime.BrowserRevision
-	if ok, err := semanticVersionAtLeast(runtimeVersion, response.MinimumRuntimeVersion); err != nil || !ok {
-		return fmt.Errorf("%w: runtime %q, minimum %q", ErrIncompatibleRuntime, runtimeVersion, response.MinimumRuntimeVersion)
+func (runtime *Runtime) validateMinimumPolicy(response *probepb.HeartbeatResponse) error {
+	if response == nil || runtime.config.Registration.GetRuntime() == nil {
+		return errors.New("central returned an invalid Probe heartbeat")
 	}
-	if ok, err := browserRevisionAtLeast(browserRevision, response.MinimumBrowserRevision); err != nil || !ok {
-		return fmt.Errorf("%w: browser %q, minimum %q", ErrIncompatibleRuntime, browserRevision, response.MinimumBrowserRevision)
+	runtimeVersion := runtime.config.Registration.GetRuntime().GetComponentVersion()
+	browserRevision := runtime.config.Registration.GetRuntime().GetBrowserRevision()
+	if ok, err := semanticVersionAtLeast(runtimeVersion, response.GetMinimumRuntimeVersion()); err != nil || !ok {
+		return fmt.Errorf("%w: runtime %q, minimum %q", ErrIncompatibleRuntime, runtimeVersion, response.GetMinimumRuntimeVersion())
+	}
+	if ok, err := browserRevisionAtLeast(browserRevision, response.GetMinimumBrowserRevision()); err != nil || !ok {
+		return fmt.Errorf("%w: browser %q, minimum %q", ErrIncompatibleRuntime, browserRevision, response.GetMinimumBrowserRevision())
 	}
 	return nil
 }
@@ -379,8 +386,8 @@ func (runtime *Runtime) workLoop(ctx context.Context, session Session) error {
 			runtime.config.Logger.WarnContext(ctx, "Probe assignment claim failed",
 				"domain", "observation", "event", "observation.assignment.claim.completed", "outcome", "failed",
 				"reason", "central_request_failed", "error_type", telemetry.ErrorType(err))
-		} else if assignment != nil {
-			if err := runtime.handleClaimedAssignment(ctx, session, *assignment); err != nil {
+		} else if assignment != nil && assignment.GetAssignment() != nil {
+			if err := runtime.handleClaimedAssignment(ctx, session, assignment.GetAssignment()); err != nil {
 				return err
 			}
 		}
@@ -405,12 +412,12 @@ func assignmentClaimWaitsForAvailability(api API) bool {
 func (runtime *Runtime) handleClaimedAssignment(
 	ctx context.Context,
 	session Session,
-	assignment central.ClaimAssignmentResponse,
+	assignment *probepb.AssignmentLease,
 ) error {
 	runtime.config.Logger.InfoContext(ctx, "Observation assignment claimed",
 		"domain", "observation", "event", "observation.assignment.claimed", "outcome", "succeeded",
-		"assignment_id", assignment.AssignmentID, "task_kind", assignment.Task.Kind)
-	runtime.setActive(assignment.AssignmentID)
+		"assignment_id", assignment.GetAssignmentId(), "task_kind", assignmentTaskKind(assignment.GetTask()))
+	runtime.setActive(assignment.GetAssignmentId())
 	defer runtime.setActive("")
 	var err error
 	if runtime.draining() {
@@ -424,7 +431,7 @@ func (runtime *Runtime) handleClaimedAssignment(
 	if err != nil && !errors.Is(err, ErrLeaseExpired) && ctx.Err() == nil {
 		runtime.config.Logger.ErrorContext(ctx, "Observation assignment failed",
 			"domain", "observation", "event", "observation.assignment.completed", "outcome", "failed",
-			"assignment_id", assignment.AssignmentID, "task_kind", assignment.Task.Kind,
+			"assignment_id", assignment.GetAssignmentId(), "task_kind", assignmentTaskKind(assignment.GetTask()),
 			"reason", "execution_failed", "error_type", telemetry.ErrorType(err))
 	}
 	return nil
@@ -433,11 +440,11 @@ func (runtime *Runtime) handleClaimedAssignment(
 func (runtime *Runtime) rejectClaimWhileDraining(
 	ctx context.Context,
 	session Session,
-	assignment central.ClaimAssignmentResponse,
+	assignment *probepb.AssignmentLease,
 ) error {
 	now := runtime.clock().UTC()
 	result, err := runtime.assignmentResult(
-		executionOutput{captures: []central.Capture{}}, errors.New("probe is draining"), now, now,
+		executionOutput{captures: []*observationpb.Capture{}}, errors.New("probe is draining"), now, now,
 	)
 	if err != nil {
 		return err
@@ -448,18 +455,18 @@ func (runtime *Runtime) rejectClaimWhileDraining(
 func (runtime *Runtime) executeAssignment(
 	ctx context.Context,
 	session Session,
-	assignment central.ClaimAssignmentResponse,
+	assignment *probepb.AssignmentLease,
 ) error {
-	if !assignment.LeaseExpiresAt.After(runtime.clock()) || !assignment.Deadline.After(runtime.clock()) {
+	if !timestampAfter(assignment.GetLeaseExpiresAt(), runtime.clock()) || !timestampAfter(assignment.GetDeadline(), runtime.clock()) {
 		return ErrLeaseExpired
 	}
 	startedAt := runtime.clock().UTC()
 	assignmentContext, cancel := context.WithCancel(ctx)
 	defer cancel()
 	resultChannel := make(chan captureResult, 1)
-	go func() { resultChannel <- runtime.captureAssignment(assignmentContext, assignment.Task) }()
+	go func() { resultChannel <- runtime.captureAssignment(assignmentContext, assignment.GetTask()) }()
 	heartbeatInterval := max(
-		assignment.LeaseExpiresAt.Sub(runtime.clock())/3,
+		timestampTime(assignment.GetLeaseExpiresAt()).Sub(runtime.clock())/3,
 		runtime.leaseHeartbeatMinimum,
 	)
 	ticker := time.NewTicker(heartbeatInterval)
@@ -471,7 +478,7 @@ func (runtime *Runtime) executeAssignment(
 		case capture := <-resultChannel:
 			return runtime.commitCapturedResult(ctx, session, assignment, capture, startedAt)
 		case <-ticker.C:
-			if !assignment.LeaseExpiresAt.After(runtime.clock()) {
+			if !timestampAfter(assignment.GetLeaseExpiresAt(), runtime.clock()) {
 				cancel()
 				return ErrLeaseExpired
 			}
@@ -484,13 +491,13 @@ func (runtime *Runtime) executeAssignment(
 				}
 				runtime.config.Logger.WarnContext(ctx, "Observation assignment heartbeat failed",
 					"domain", "observation", "event", "observation.assignment.heartbeat.completed",
-					"outcome", "failed", "assignment_id", assignment.AssignmentID,
+					"outcome", "failed", "assignment_id", assignment.GetAssignmentId(),
 					"reason", "central_request_failed", "error_type", telemetry.ErrorType(err))
-			case !response.LeaseExpiresAt.After(runtime.clock()):
+			case response == nil || !timestampAfter(response.GetLeaseExpiresAt(), runtime.clock()):
 				cancel()
 				return errors.New("central returned an invalid assignment lease extension")
 			default:
-				assignment.LeaseExpiresAt = response.LeaseExpiresAt
+				assignment.SetLeaseExpiresAt(response.GetLeaseExpiresAt())
 			}
 		}
 	}
@@ -499,7 +506,7 @@ func (runtime *Runtime) executeAssignment(
 func (runtime *Runtime) commitCapturedResult(
 	ctx context.Context,
 	session Session,
-	assignment central.ClaimAssignmentResponse,
+	assignment *probepb.AssignmentLease,
 	capture captureResult,
 	startedAt time.Time,
 ) error {
@@ -511,31 +518,28 @@ func (runtime *Runtime) commitCapturedResult(
 	if err := runtime.commitResult(ctx, session, assignment, result); err != nil {
 		return err
 	}
-	outcome := "succeeded"
-	switch result.Status {
-	case "failed":
-		outcome = "failed"
-	case "partial":
-		outcome = "degraded"
-	}
+	outcome := resultOutcome(result)
 	runtime.config.Logger.InfoContext(ctx, "Observation assignment completed",
 		"domain", "observation", "event", "observation.assignment.completed", "outcome", outcome,
-		"assignment_id", assignment.AssignmentID, "run_id", result.RunID,
-		"task_kind", assignment.Task.Kind, "result_status", result.Status,
+		"assignment_id", assignment.GetAssignmentId(), "run_id", result.GetRunId(),
+		"task_kind", assignmentTaskKind(assignment.GetTask()), "result_status", outcome,
 		"duration_ms", finishedAt.Sub(startedAt).Milliseconds())
 	return nil
 }
 
-func (runtime *Runtime) captureAssignment(ctx context.Context, task central.AssignmentTask) captureResult {
-	switch task.Kind {
-	case central.CapabilityCGVCatalogCapture:
+func (runtime *Runtime) captureAssignment(ctx context.Context, task *observationpb.AssignmentTask) captureResult {
+	if task == nil {
+		return captureResult{err: errors.New("central returned an assignment without a task")}
+	}
+	switch {
+	case task.GetCatalog() != nil:
 		executor, supported := runtime.executor.(catalogExecutor)
 		if !supported {
 			return captureResult{err: errors.New("probe executor does not support catalog capture")}
 		}
 		catalog, err := executor.CaptureCatalog(ctx, task)
 		return captureResult{output: executionOutput{catalog: catalog}, err: err}
-	case central.CapabilityCGVSeatMapCapture:
+	case task.GetSeatMap() != nil:
 		executor, supported := runtime.executor.(SeatMapExecutor)
 		if !supported {
 			return captureResult{err: errors.New("probe executor does not support seat-map capture")}
@@ -553,23 +557,35 @@ func (runtime *Runtime) assignmentResult(
 	captureErr error,
 	startedAt time.Time,
 	finishedAt time.Time,
-) (central.AssignmentResult, error) {
+) (*observationpb.AssignmentResult, error) {
 	runID, err := runtime.newRunID()
 	if err != nil {
-		return central.AssignmentResult{}, err
+		return nil, err
 	}
-	status := resultStatus(output, captureErr)
-	return central.AssignmentResult{
-		RunID: runID, Status: status, StartedAt: startedAt, FinishedAt: finishedAt,
-		Captures: output.captures, Catalog: output.catalog, SeatMap: output.seatMap,
-	}, nil
+	result := &observationpb.AssignmentResult{}
+	result.SetRunId(runID)
+	result.SetStartedAt(timestamppb.New(startedAt))
+	result.SetFinishedAt(timestamppb.New(finishedAt))
+	if captureErr != nil {
+		failed := &observationpb.Failed{}
+		failed.SetReasonCode("capture_failed")
+		failed.SetRetryable(false)
+		result.SetFailed(failed)
+		return result, nil //nolint:nilerr // capture failures are represented in the generated result oneof
+	}
+	completed := &observationpb.Completed{}
+	completed.SetCaptures(output.captures)
+	completed.SetCatalog(output.catalog)
+	completed.SetSeatMap(output.seatMap)
+	result.SetCompleted(completed)
+	return result, nil
 }
 
 func (runtime *Runtime) commitResult(
 	ctx context.Context,
 	session Session,
-	assignment central.ClaimAssignmentResponse,
-	result central.AssignmentResult,
+	assignment *probepb.AssignmentLease,
+	result *observationpb.AssignmentResult,
 ) error {
 	backoff := runtime.config.ReconnectMinimum
 	for {
@@ -580,7 +596,7 @@ func (runtime *Runtime) commitResult(
 		if errors.Is(err, ErrUnauthorized) || !retryable(err) {
 			return err
 		}
-		if !assignment.LeaseExpiresAt.After(runtime.clock().Add(backoff)) {
+		if !timestampAfter(assignment.GetLeaseExpiresAt(), runtime.clock().Add(backoff)) {
 			return ErrLeaseExpired
 		}
 		runtime.logRetry("commit result", err, backoff)
@@ -591,7 +607,7 @@ func (runtime *Runtime) commitResult(
 	}
 }
 
-func (runtime *Runtime) heartbeatState() central.ProbeHeartbeatRequest {
+func (runtime *Runtime) heartbeatState() *probepb.HeartbeatRequest {
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 	active := make([]string, 0, 1)
@@ -602,32 +618,37 @@ func (runtime *Runtime) heartbeatState() central.ProbeHeartbeatRequest {
 	if runtime.localDrain || runtime.remoteDrain || runtime.activeID != "" {
 		available = 0
 	}
-	return central.ProbeHeartbeatRequest{
-		Draining:            runtime.localDrain,
-		ActiveAssignmentIDs: active, AvailableCapabilities: runtime.availableCapabilities(),
-		AvailableSlots: available, Health: "healthy",
-	}
+	request := &probepb.HeartbeatRequest{}
+	request.SetDraining(runtime.localDrain)
+	request.SetActiveAssignmentIds(active)
+	request.SetAvailableCapabilities(runtime.availableCapabilities())
+	request.SetAvailableSlots(int32(available))
+	health := &probepb.ProbeHealth{}
+	health.SetHealthy(&probepb.Healthy{})
+	request.SetHealth(health)
+	return request
 }
 
-func (runtime *Runtime) availableCapabilities() []string {
-	capabilities := runtime.config.Registration.Capabilities
+func (runtime *Runtime) availableCapabilities() []*observationpb.Capability {
+	capabilities := runtime.config.Registration.GetCapabilities()
 	if runtime.config.AvailableCapabilities != nil {
 		capabilities = runtime.config.AvailableCapabilities()
 	}
-	registered := make(map[string]struct{}, len(runtime.config.Registration.Capabilities))
-	for _, capability := range runtime.config.Registration.Capabilities {
-		registered[capability] = struct{}{}
+	registered := make(map[string]struct{}, len(runtime.config.Registration.GetCapabilities()))
+	for _, capability := range runtime.config.Registration.GetCapabilities() {
+		registered[capabilityKey(capability)] = struct{}{}
 	}
-	available := make([]string, 0, len(capabilities))
+	available := make([]*observationpb.Capability, 0, len(capabilities))
 	seen := make(map[string]struct{}, len(capabilities))
 	for _, capability := range capabilities {
-		if _, supported := registered[capability]; !supported {
+		key := capabilityKey(capability)
+		if _, supported := registered[key]; !supported {
 			continue
 		}
-		if _, duplicate := seen[capability]; duplicate {
+		if _, duplicate := seen[key]; duplicate {
 			continue
 		}
-		seen[capability] = struct{}{}
+		seen[key] = struct{}{}
 		available = append(available, capability)
 	}
 	return available
@@ -649,8 +670,8 @@ func (runtime *Runtime) disconnect(session Session) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	request := runtime.heartbeatState()
-	request.Draining = true
-	request.AvailableSlots = 0
+	request.SetDraining(true)
+	request.SetAvailableSlots(0)
 	_, _ = runtime.api.HeartbeatProbe(ctx, session, request)
 	_ = runtime.api.DisconnectProbe(ctx, session)
 }
@@ -682,29 +703,71 @@ func (runtime *Runtime) logRetry(operation string, err error, delay time.Duratio
 		"reason", "central_request_failed", "error_type", telemetry.ErrorType(err))
 }
 
-func resultStatus(output executionOutput, captureErr error) string {
-	if captureErr != nil {
+func resultOutcome(result *observationpb.AssignmentResult) string {
+	if result == nil || result.GetFailed() != nil {
 		return "failed"
 	}
-	if output.catalog != nil || output.seatMap != nil {
-		return "completed"
+	completed := result.GetCompleted()
+	if completed == nil {
+		return "failed"
 	}
-	if len(output.captures) == 0 {
+	if completed.GetCatalog() != nil || completed.GetSeatMap() != nil {
+		return "succeeded"
+	}
+	captures := completed.GetCaptures()
+	if len(captures) == 0 {
 		return "failed"
 	}
 	complete := 0
-	for _, capture := range output.captures {
-		if capture.Complete {
+	for _, capture := range captures {
+		if capture.GetComplete() {
 			complete++
 		}
 	}
-	if complete == len(output.captures) {
-		return "completed"
+	if complete == len(captures) {
+		return "succeeded"
 	}
 	if complete > 0 {
-		return "partial"
+		return "degraded"
 	}
 	return "failed"
+}
+
+func assignmentTaskKind(task *observationpb.AssignmentTask) string {
+	switch {
+	case task != nil && task.GetCatalog() != nil:
+		return "catalog"
+	case task != nil && task.GetSeatMap() != nil:
+		return "seat_map"
+	case task != nil && task.GetSchedule() != nil:
+		return "schedule"
+	default:
+		return "unknown"
+	}
+}
+
+func capabilityKey(capability *observationpb.Capability) string {
+	switch {
+	case capability != nil && capability.GetScheduleCapture() != nil:
+		return "cgv.schedule.capture"
+	case capability != nil && capability.GetCatalogCapture() != nil:
+		return "cgv.catalog.capture"
+	case capability != nil && capability.GetSeatMapCapture() != nil:
+		return "cgv.seat-map.capture"
+	default:
+		return ""
+	}
+}
+
+func timestampTime(value *timestamppb.Timestamp) time.Time {
+	if value == nil {
+		return time.Time{}
+	}
+	return value.AsTime()
+}
+
+func timestampAfter(value *timestamppb.Timestamp, now time.Time) bool {
+	return value != nil && value.AsTime().After(now)
 }
 
 func retryable(err error) bool {

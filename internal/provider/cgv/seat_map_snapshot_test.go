@@ -5,45 +5,63 @@ import (
 	"testing"
 	"time"
 
-	contracts "github.com/cineko-org/contracts/v3"
+	catalogpb "github.com/cineko-org/contracts/gen/go/cineko/catalog"
+	commonpb "github.com/cineko-org/contracts/gen/go/cineko/common"
+	observationpb "github.com/cineko-org/contracts/gen/go/cineko/observation"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestSeatMapTaskRequiresCanonicalExactShowtime(t *testing.T) {
 	t.Parallel()
 	theaterSource := "0056"
-	theaterID := contracts.CatalogID(contracts.ProviderCGV, "theater", theaterSource)
+	theaterID := CatalogID(ProviderCGV, "theater", theaterSource)
 	auditoriumSource := theaterSource + "/0007"
-	auditoriumID := contracts.CatalogID(contracts.ProviderCGV, "auditorium", auditoriumSource)
+	auditoriumID := CatalogID(ProviderCGV, "auditorium", auditoriumSource)
 	showtimeSource := theaterSource + "/2026-08-21/0007/0003"
-	showtimeID := contracts.CatalogID(contracts.ProviderCGV, "showtime", showtimeSource)
+	showtimeID := CatalogID(ProviderCGV, "showtime", showtimeSource)
 	startsAt := time.Date(2026, 8, 21, 20, 0, 0, 0, time.FixedZone("KST", 9*60*60))
-	task := contracts.AssignmentTask{
-		Kind: contracts.CapabilityCGVSeatMapCapture,
-		Theater: contracts.Theater{
-			ID: theaterID, ProviderID: contracts.ProviderCGV, SourceKey: theaterSource,
-			Region: "서울", Name: "용산아이파크몰",
-		},
-		Auditorium: &contracts.Auditorium{
-			ID: auditoriumID, TheaterID: theaterID, SourceKey: auditoriumSource, Name: "IMAX관",
-		},
-		Showtime: &contracts.Showtime{
-			ID: showtimeID, ProviderID: contracts.ProviderCGV, SourceKey: showtimeSource,
-			Auditorium: contracts.Auditorium{ID: auditoriumID},
-			Movie:      contracts.Movie{ID: contracts.CatalogID(contracts.ProviderCGV, "movie", "00001234")},
-			StartsAt:   startsAt, EndsAt: startsAt.Add(2 * time.Hour),
-		},
-		TimeZone: "Asia/Seoul",
-	}
+	theater := &catalogpb.Theater{}
+	theater.SetId(theaterID)
+	theater.SetProviderId(ProviderCGV)
+	theater.SetSourceKey(theaterSource)
+	theater.SetRegion("서울")
+	theater.SetName("용산아이파크몰")
+	auditorium := &catalogpb.Auditorium{}
+	auditorium.SetId(auditoriumID)
+	auditorium.SetTheaterId(theaterID)
+	auditorium.SetSourceKey(auditoriumSource)
+	auditorium.SetName("IMAX관")
+	movie := &catalogpb.Movie{}
+	movie.SetId(CatalogID(ProviderCGV, "movie", "00001234"))
+	showtime := &catalogpb.Showtime{}
+	showtime.SetId(showtimeID)
+	showtime.SetProviderId(ProviderCGV)
+	showtime.SetSourceKey(showtimeSource)
+	showtime.SetTheaterId(theaterID)
+	showtime.SetAuditorium(auditorium)
+	showtime.SetMovie(movie)
+	showtime.SetStartsAt(timestamppb.New(startsAt))
+	showtime.SetEndsAt(timestamppb.New(startsAt.Add(2 * time.Hour)))
+	seatTask := &observationpb.SeatMapTask{}
+	seatTask.SetTheater(theater)
+	seatTask.SetAuditorium(auditorium)
+	seatTask.SetShowtime(showtime)
+	seatTask.SetTimeZone("Asia/Seoul")
+	task := &observationpb.AssignmentTask{}
+	task.SetSeatMap(seatTask)
+	egress := &commonpb.EgressPolicy{}
+	egress.SetManagedScan(&commonpb.ManagedScanEgress{})
+	task.SetEgress(egress)
 	if err := validateSeatMapTask(task); err != nil {
 		t.Fatalf("canonical task rejected: %v", err)
 	}
 	entry := scheduleEntry{Showtime: ScheduleShowtime{
-		SourceKey: showtimeSource, MovieID: task.Showtime.Movie.ID, AuditoriumID: auditoriumID,
+		SourceKey: showtimeSource, MovieID: task.GetSeatMap().GetShowtime().GetMovie().GetId(), AuditoriumID: auditoriumID,
 	}}
-	if _, err := exactSeatMapShowtime([]scheduleEntry{entry}, *task.Showtime); err != nil {
+	if _, err := exactSeatMapShowtime([]scheduleEntry{entry}, task.GetSeatMap().GetShowtime()); err != nil {
 		t.Fatalf("exact provider showtime rejected: %v", err)
 	}
-	task.Showtime.SourceKey = ""
+	task.GetSeatMap().GetShowtime().SetSourceKey("")
 	if err := validateSeatMapTask(task); err == nil {
 		t.Fatal("noncanonical showtime accepted")
 	}
@@ -55,16 +73,16 @@ func TestParseSeatMapLayoutPreservesStaticSemantics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(layout.Seats) != 2 || len(layout.Zones) != 1 || len(layout.Blocks) != 1 {
-		t.Fatalf("layout counts = seats:%d zones:%d blocks:%d", len(layout.Seats), len(layout.Zones), len(layout.Blocks))
+	if len(layout.GetSeats()) != 2 || len(layout.GetZones()) != 1 || len(layout.GetBlocks()) != 1 {
+		t.Fatalf("layout counts = seats:%d zones:%d blocks:%d", len(layout.GetSeats()), len(layout.GetZones()), len(layout.GetBlocks()))
 	}
-	seat := layout.Seats[0]
-	if seat.Label != "A19" || seat.ID != contracts.SeatID("auditorium-1", "A19") ||
-		seat.Type != "wheelchair" || seat.SaleFormName != "이동식" || !seat.RightAisle {
+	seat := layout.GetSeats()[0]
+	if seat.GetLabel() != "A19" || seat.GetId() != SeatID("auditorium-1", "A19") ||
+		seat.GetType() != "wheelchair" || seat.GetSaleFormName() != "이동식" || !seat.GetRightAisle() {
 		t.Fatalf("first seat = %+v", seat)
 	}
-	if seat.X <= 0.40 || seat.X >= 0.45 || seat.Y <= 0 || seat.Y >= 0.1 {
-		t.Fatalf("normalized position = %.4f,%.4f", seat.X, seat.Y)
+	if seat.GetX() <= 0.40 || seat.GetX() >= 0.45 || seat.GetY() <= 0 || seat.GetY() >= 0.1 {
+		t.Fatalf("normalized position = %.4f,%.4f", seat.GetX(), seat.GetY())
 	}
 }
 

@@ -5,9 +5,17 @@ import (
 	"errors"
 	"testing"
 
-	contracts "github.com/cineko-org/contracts/v3"
+	probepb "github.com/cineko-org/contracts/gen/go/cineko/probe"
 	cgvbrowser "github.com/cineko-org/probe/v2/internal/provider/cgv/browser"
 )
+
+func clientRegistration() *probepb.RegisterRequest {
+	registration := testRegistration()
+	kind := &probepb.ProbeKind{}
+	kind.SetClient(&probepb.ClientProbe{})
+	registration.SetKind(kind)
+	return registration
+}
 
 func TestNewBrowserRuntimeValidatesPublicConfiguration(t *testing.T) {
 	if _, err := NewBrowserRuntime(BrowserRuntimeConfig{}); err == nil {
@@ -18,13 +26,14 @@ func TestNewBrowserRuntimeValidatesPublicConfiguration(t *testing.T) {
 		t.Fatal("empty Central URL accepted")
 	}
 	config.CentralURL = "https://central.example.test"
-	config.Registration = contracts.RegisterProbeRequest{Kind: "invalid", MaxConcurrency: 1}
+	config.Registration = &probepb.RegisterRequest{}
+	config.Registration.SetMaxConcurrency(1)
 	if _, err := NewBrowserRuntime(config); err == nil {
 		t.Fatal("invalid registration accepted")
 	}
 	t.Setenv("CINEKO_SOXY_URL", "https://soxy.example.test")
 	t.Setenv("CINEKO_SOXY_API_TOKEN", "")
-	config.Registration = contracts.RegisterProbeRequest{Kind: "client", MaxConcurrency: 1}
+	config.Registration = clientRegistration()
 	if _, err := NewBrowserRuntime(config); err == nil {
 		t.Fatal("invalid egress configuration accepted")
 	}
@@ -36,7 +45,7 @@ func TestNewBrowserRuntimeClosesFactoryOnExecutorFailure(t *testing.T) {
 	config := BrowserRuntimeConfig{
 		CentralURL: "https://central.example.test", DataDir: t.TempDir(),
 		Credentials:  StaticCredential("token"),
-		Registration: contracts.RegisterProbeRequest{Kind: "client", MaxConcurrency: 1},
+		Registration: clientRegistration(),
 	}
 	factory, err := cgvbrowser.NewFromEnvironment(config.DataDir)
 	if err != nil {
@@ -67,12 +76,10 @@ func TestBrowserRuntimePublicLifecycle(t *testing.T) {
 	t.Setenv("CINEKO_SOXY_URL", "")
 	t.Setenv("CINEKO_SOXY_API_TOKEN", "")
 	runtime, err := NewBrowserRuntime(BrowserRuntimeConfig{
-		CentralURL:  "https://central.example.test",
-		DataDir:     t.TempDir(),
-		Credentials: StaticCredential("token"),
-		Registration: contracts.RegisterProbeRequest{
-			InstallationID: "install_test", Kind: "client", MaxConcurrency: 1,
-		},
+		CentralURL:   "https://central.example.test",
+		DataDir:      t.TempDir(),
+		Credentials:  StaticCredential("token"),
+		Registration: clientRegistration(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -91,7 +98,7 @@ func TestBrowserRuntimeRunRejectsNilContext(t *testing.T) {
 	t.Parallel()
 	probeRuntime, err := NewRuntime(
 		&fakeAPI{}, StaticCredential("token"), &fakeExecutor{err: errors.New("unused")},
-		Config{Registration: contracts.RegisterProbeRequest{Kind: "container", MaxConcurrency: 1}},
+		Config{Registration: testRegistration()},
 	)
 	if err != nil {
 		t.Fatal(err)

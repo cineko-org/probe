@@ -20,8 +20,7 @@ import (
 	"strings"
 	"time"
 
-	contracts "github.com/cineko-org/contracts/v3"
-	central "github.com/cineko-org/probe/v2/internal/protocol"
+	probepb "github.com/cineko-org/contracts/gen/go/cineko/probe"
 )
 
 const (
@@ -31,7 +30,36 @@ const (
 
 var rawEncoding = base64.RawURLEncoding
 
-type Claims = contracts.ProbeBootstrapClaims
+var ErrUnauthorized = errors.New("unauthorized")
+
+// Claims is the private JOSE payload used for bootstrap tickets. Bootstrap
+// tickets are signed JSON, not a Contracts wire message; keeping this payload
+// concrete prevents a versioned-contract alias from becoming a second API.
+type Claims struct {
+	Issuer          string   `json:"iss"`
+	Audience        string   `json:"aud"`
+	UserID          string   `json:"sub"`
+	TicketID        string   `json:"jti"`
+	IssuedAt        int64    `json:"iat"`
+	NotBefore       int64    `json:"nbf"`
+	ExpiresAt       int64    `json:"exp"`
+	InstallationID  string   `json:"installationId"`
+	DeviceID        string   `json:"deviceId"`
+	Kind            string   `json:"kind"`
+	Capabilities    []string `json:"capabilities"`
+	MaxConcurrency  int      `json:"maxConcurrency"`
+	RuntimeVersion  string   `json:"runtimeVersion"`
+	BrowserRevision string   `json:"browserRevision"`
+	Platform        string   `json:"platform"`
+	Architecture    string   `json:"architecture"`
+}
+
+type RegistrationAuthorization struct {
+	OwnerUserID string
+	DeviceID    string
+	TicketID    string
+	ExpiresAt   time.Time
+}
 
 type header struct {
 	Algorithm string `json:"alg"`
@@ -74,7 +102,7 @@ func (signer *Signer) Issue(claims Claims, lifetime time.Duration) (string, erro
 	claims.ExpiresAt = now.Add(lifetime).Unix()
 	capabilities, validCapabilities := normalizeCapabilities(claims.Capabilities)
 	if !validCapabilities {
-		return "", central.ErrUnauthorized
+		return "", ErrUnauthorized
 	}
 	claims.Capabilities = capabilities
 	if err := validateClaims(claims, now, signer.issuer, signer.audience); err != nil {
@@ -131,15 +159,15 @@ func NewVerifier(
 func (verifier *Verifier) Verify(token string, now time.Time) (Claims, error) {
 	parts, key, err := verifier.parseTokenHeader(token)
 	if err != nil || !verifyTokenSignature(parts, key) {
-		return Claims{}, central.ErrUnauthorized
+		return Claims{}, ErrUnauthorized
 	}
 	claims, err := decodeTokenClaims(parts[1])
 	if err != nil || validateClaims(claims, now.UTC(), verifier.issuer, verifier.audience) != nil {
-		return Claims{}, central.ErrUnauthorized
+		return Claims{}, ErrUnauthorized
 	}
 	if now.Add(verifier.clockSkew).Before(time.Unix(claims.NotBefore, 0)) ||
 		!now.Add(-verifier.clockSkew).Before(time.Unix(claims.ExpiresAt, 0)) {
-		return Claims{}, central.ErrUnauthorized
+		return Claims{}, ErrUnauthorized
 	}
 	return claims, nil
 }
@@ -147,20 +175,20 @@ func (verifier *Verifier) Verify(token string, now time.Time) (Claims, error) {
 func (verifier *Verifier) parseTokenHeader(token string) ([]string, *ecdsa.PublicKey, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
-		return nil, nil, central.ErrUnauthorized
+		return nil, nil, ErrUnauthorized
 	}
 	headerBytes, err := rawEncoding.Strict().DecodeString(parts[0])
 	if err != nil {
-		return nil, nil, central.ErrUnauthorized
+		return nil, nil, ErrUnauthorized
 	}
 	var ticketHeader header
 	if err := decodeStrict(headerBytes, &ticketHeader); err != nil ||
 		ticketHeader.Algorithm != algorithm || ticketHeader.Type != tokenType {
-		return nil, nil, central.ErrUnauthorized
+		return nil, nil, ErrUnauthorized
 	}
 	key := verifier.keys[ticketHeader.KeyID]
 	if key == nil {
-		return nil, nil, central.ErrUnauthorized
+		return nil, nil, ErrUnauthorized
 	}
 	return parts, key, nil
 }
@@ -193,21 +221,55 @@ func decodeTokenClaims(payload string) (Claims, error) {
 
 func (verifier *Verifier) Authorize(
 	_ context.Context,
-	request central.RegisterProbeRequest,
+	request *probepb.RegisterRequest,
 	token string,
 	now time.Time,
-) (central.RegistrationAuthorization, error) {
+) (RegistrationAuthorization, error) {
 	claims, err := verifier.Verify(token, now)
-	capabilities, validCapabilities := normalizeCapabilities(request.Capabilities)
-	if err != nil || claims.Kind != "client" || request.Kind != "client" ||
-		claims.InstallationID != request.InstallationID || claims.MaxConcurrency != request.MaxConcurrency ||
-		claims.Runtime != request.Runtime || !validCapabilities || !slices.Equal(claims.Capabilities, capabilities) {
-		return central.RegistrationAuthorization{}, central.ErrUnauthorized
+	capabilities, capabilityErr := capabilityKeys(request)
+	runtime := request.GetRuntime()
+	if err != nil || capabilityErr != nil || claims.Kind != "client" || request.GetKind().GetClient() == nil ||
+		claims.InstallationID != request.GetInstallationId() || claims.MaxConcurrency != int(request.GetMaxConcurrency()) ||
+		runtime == nil || claims.RuntimeVersion != runtime.GetComponentVersion() ||
+		claims.BrowserRevision != runtime.GetBrowserRevision() || claims.Platform != runtime.GetPlatform() ||
+		claims.Architecture != runtime.GetArchitecture() || !slices.Equal(claims.Capabilities, capabilities) {
+		return RegistrationAuthorization{}, ErrUnauthorized
 	}
-	return central.RegistrationAuthorization{
+	return RegistrationAuthorization{
 		OwnerUserID: claims.UserID, DeviceID: claims.DeviceID, TicketID: claims.TicketID,
 		ExpiresAt: time.Unix(claims.ExpiresAt, 0).UTC(),
 	}, nil
+}
+
+func capabilityKeys(request *probepb.RegisterRequest) ([]string, error) {
+	if request == nil {
+		return nil, ErrUnauthorized
+	}
+	keys := make([]string, 0, len(request.GetCapabilities()))
+	seen := make(map[string]struct{}, len(keys))
+	for _, capability := range request.GetCapabilities() {
+		var key string
+		switch {
+		case capability != nil && capability.GetScheduleCapture() != nil:
+			key = "cgv.schedule.capture"
+		case capability != nil && capability.GetCatalogCapture() != nil:
+			key = "cgv.catalog.capture"
+		case capability != nil && capability.GetSeatMapCapture() != nil:
+			key = "cgv.seat-map.capture"
+		default:
+			return nil, ErrUnauthorized
+		}
+		if _, duplicate := seen[key]; duplicate {
+			return nil, ErrUnauthorized
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	if len(keys) == 0 {
+		return nil, ErrUnauthorized
+	}
+	slices.Sort(keys)
+	return keys, nil
 }
 
 func ParsePrivateKeyPEM(contents []byte) (*ecdsa.PrivateKey, error) {
@@ -307,7 +369,7 @@ func validateClaims(claims Claims, now time.Time, issuer, audience string) error
 		!validCapabilities || !slices.Equal(claims.Capabilities, capabilities) ||
 		claims.IssuedAt <= 0 || claims.NotBefore < claims.IssuedAt || claims.ExpiresAt <= claims.NotBefore ||
 		time.Unix(claims.IssuedAt, 0).After(now.Add(time.Minute)) {
-		return central.ErrUnauthorized
+		return ErrUnauthorized
 	}
 	return nil
 }
@@ -320,7 +382,7 @@ func normalizeCapabilities(values []string) ([]string, bool) {
 	seen := make(map[string]struct{}, len(values))
 	for index, value := range values {
 		value = strings.TrimSpace(value)
-		if value == "" || !contracts.IsSupportedCapability(value) {
+		if value == "" || !isSupportedCapability(value) {
 			return nil, false
 		}
 		if _, duplicate := seen[value]; duplicate {
@@ -331,6 +393,17 @@ func normalizeCapabilities(values []string) ([]string, bool) {
 	}
 	slices.Sort(result)
 	return result, true
+}
+
+func isSupportedCapability(value string) bool {
+	for _, capability := range []string{
+		"cgv.schedule.capture", "cgv.catalog.capture", "cgv.seat-map.capture",
+	} {
+		if value == capability {
+			return true
+		}
+	}
+	return false
 }
 
 func validPrivateKey(key *ecdsa.PrivateKey) bool {

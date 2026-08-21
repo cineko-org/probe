@@ -20,8 +20,9 @@ import (
 	"testing"
 	"time"
 
-	contracts "github.com/cineko-org/contracts/v3"
-	central "github.com/cineko-org/probe/v2/internal/protocol"
+	commonpb "github.com/cineko-org/contracts/gen/go/cineko/common"
+	observationpb "github.com/cineko-org/contracts/gen/go/cineko/observation"
+	probepb "github.com/cineko-org/contracts/gen/go/cineko/probe"
 )
 
 func TestBootstrapTicketRoundTripAndAuthorization(t *testing.T) {
@@ -51,10 +52,7 @@ func TestBootstrapTicketRoundTripAndAuthorization(t *testing.T) {
 	if err != nil || verified.UserID != claims.UserID || verified.ExpiresAt != now.Add(time.Minute).Unix() {
 		t.Fatalf("verified claims = %+v, error = %v", verified, err)
 	}
-	registration := central.RegisterProbeRequest{
-		InstallationID: claims.InstallationID, Kind: "client", Capabilities: []string{contracts.CapabilityCGVScheduleCapture},
-		MaxConcurrency: 1, Runtime: claims.Runtime,
-	}
+	registration := registrationForClaims(claims)
 	authorization, err := verifier.Authorize(context.Background(), registration, token, now)
 	if err != nil || authorization.OwnerUserID != claims.UserID || authorization.DeviceID != claims.DeviceID ||
 		authorization.TicketID != claims.TicketID || !authorization.ExpiresAt.Equal(now.Add(time.Minute)) {
@@ -96,31 +94,31 @@ func TestBootstrapTicketRejectsTamperingAndInvalidBindings(t *testing.T) {
 		parts[0] + "." + rawEncoding.EncodeToString([]byte(`{"bad":true}`)) + "." + parts[2],
 	}
 	for _, value := range cases {
-		if _, err := verifier.Verify(value, now); !errors.Is(err, central.ErrUnauthorized) {
+		if _, err := verifier.Verify(value, now); !errors.Is(err, ErrUnauthorized) {
 			t.Fatalf("tampered ticket %q error = %v", value, err)
 		}
 	}
-	if _, err := verifier.Verify(token, now.Add(2*time.Minute)); !errors.Is(err, central.ErrUnauthorized) {
+	if _, err := verifier.Verify(token, now.Add(2*time.Minute)); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("expired ticket error = %v", err)
 	}
-	if _, err := verifier.Verify(token, now.Add(-2*time.Minute)); !errors.Is(err, central.ErrUnauthorized) {
+	if _, err := verifier.Verify(token, now.Add(-2*time.Minute)); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("future ticket error = %v", err)
 	}
-	registration := central.RegisterProbeRequest{
-		InstallationID: claims.InstallationID, Kind: "client", Capabilities: []string{contracts.CapabilityCGVScheduleCapture},
-		MaxConcurrency: 1, Runtime: claims.Runtime,
-	}
-	mutations := []func(*central.RegisterProbeRequest){
-		func(value *central.RegisterProbeRequest) { value.Kind = "container" },
-		func(value *central.RegisterProbeRequest) { value.InstallationID = "other" },
-		func(value *central.RegisterProbeRequest) { value.MaxConcurrency = 2 },
-		func(value *central.RegisterProbeRequest) { value.Capabilities = []string{"other.v1"} },
-		func(value *central.RegisterProbeRequest) { value.Runtime.Version = "2.0.0" },
+	mutations := []func(*probepb.RegisterRequest){
+		func(value *probepb.RegisterRequest) {
+			kind := &probepb.ProbeKind{}
+			kind.SetContainer(&probepb.ContainerProbe{})
+			value.SetKind(kind)
+		},
+		func(value *probepb.RegisterRequest) { value.SetInstallationId("other") },
+		func(value *probepb.RegisterRequest) { value.SetMaxConcurrency(2) },
+		func(value *probepb.RegisterRequest) { value.SetCapabilities([]*observationpb.Capability{}) },
+		func(value *probepb.RegisterRequest) { value.GetRuntime().SetComponentVersion("2.0.0") },
 	}
 	for _, mutate := range mutations {
-		value := registration
-		mutate(&value)
-		if _, err := verifier.Authorize(context.Background(), value, token, now); !errors.Is(err, central.ErrUnauthorized) {
+		value := registrationForClaims(claims)
+		mutate(value)
+		if _, err := verifier.Authorize(context.Background(), value, token, now); !errors.Is(err, ErrUnauthorized) {
 			t.Fatalf("mismatched registration %+v error = %v", value, err)
 		}
 	}
@@ -136,7 +134,7 @@ func TestBootstrapCapabilitiesAreCanonicalAndExactlyBound(t *testing.T) {
 	}
 	signer.clock = func() time.Time { return now }
 	claims := validClaims()
-	claims.Capabilities = []string{" cgv.schedule.capture.v2 "}
+	claims.Capabilities = []string{" cgv.schedule.capture "}
 	token, err := signer.Issue(claims, time.Minute)
 	if err != nil {
 		t.Fatal(err)
@@ -146,23 +144,19 @@ func TestBootstrapCapabilitiesAreCanonicalAndExactlyBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	verified, err := verifier.Verify(token, now)
-	if err != nil || !slices.Equal(verified.Capabilities, []string{contracts.CapabilityCGVScheduleCapture}) {
+	if err != nil || !slices.Equal(verified.Capabilities, []string{"cgv.schedule.capture"}) {
 		t.Fatalf("verified capabilities = %v, error = %v", verified.Capabilities, err)
 	}
-	registration := central.RegisterProbeRequest{
-		InstallationID: claims.InstallationID, Kind: "client",
-		Capabilities:   []string{" cgv.schedule.capture.v2 "},
-		MaxConcurrency: 1, Runtime: claims.Runtime,
-	}
+	registration := registrationForClaims(claims)
 	if _, err := verifier.Authorize(context.Background(), registration, token, now); err != nil {
 		t.Fatalf("normalized capability set rejected: %v", err)
 	}
-	registration.Capabilities = append(registration.Capabilities, "extra.v1")
-	if _, err := verifier.Authorize(context.Background(), registration, token, now); !errors.Is(err, central.ErrUnauthorized) {
+	registration.SetCapabilities(append(registration.GetCapabilities(), &observationpb.Capability{}))
+	if _, err := verifier.Authorize(context.Background(), registration, token, now); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("expanded capability set error = %v", err)
 	}
-	claims.Capabilities = []string{contracts.CapabilityCGVScheduleCapture, " cgv.schedule.capture.v2 "}
-	if _, err := signer.Issue(claims, time.Minute); !errors.Is(err, central.ErrUnauthorized) {
+	claims.Capabilities = []string{"cgv.schedule.capture", " cgv.schedule.capture "}
+	if _, err := signer.Issue(claims, time.Minute); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("duplicate capabilities error = %v", err)
 	}
 }
@@ -202,7 +196,7 @@ func TestBootstrapConfigurationAndSigningFailures(t *testing.T) {
 	}
 	invalid := validClaims()
 	invalid.UserID = ""
-	if _, err := signer.Issue(invalid, time.Minute); !errors.Is(err, central.ErrUnauthorized) {
+	if _, err := signer.Issue(invalid, time.Minute); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("invalid ticket claims error = %v", err)
 	}
 	signer.sign = func(io.Reader, *ecdsa.PrivateKey, []byte) (*big.Int, *big.Int, error) {
@@ -311,7 +305,7 @@ func TestBootstrapHelpers(t *testing.T) {
 	if got := normalizeLowS(order, big.NewInt(1)); got.Cmp(big.NewInt(1)) != 0 {
 		t.Fatalf("low S changed to %v", got)
 	}
-	for _, capabilities := range [][]string{nil, {""}, {" duplicate.v1 ", "duplicate.v1"}} {
+	for _, capabilities := range [][]string{nil, {""}, {" cgv.schedule.capture ", "cgv.schedule.capture"}} {
 		if _, valid := normalizeCapabilities(capabilities); valid {
 			t.Fatalf("invalid capabilities accepted: %q", capabilities)
 		}
@@ -321,12 +315,28 @@ func TestBootstrapHelpers(t *testing.T) {
 func validClaims() Claims {
 	return Claims{
 		UserID: "user_01", TicketID: "ticket_01", InstallationID: "install_01", DeviceID: "device_01",
-		Kind: "client", Capabilities: []string{contracts.CapabilityCGVScheduleCapture}, MaxConcurrency: 1,
-		Runtime: central.Runtime{
-			Version: "1.0.0", Protocol: central.ProtocolVersion, BrowserRevision: "1228",
-			Platform: "darwin", Arch: "arm64",
-		},
+		Kind: "client", Capabilities: []string{"cgv.schedule.capture"}, MaxConcurrency: 1,
+		RuntimeVersion: "1.0.0", BrowserRevision: "1228", Platform: "darwin", Architecture: "arm64",
 	}
+}
+
+func registrationForClaims(claims Claims) *probepb.RegisterRequest {
+	registration := &probepb.RegisterRequest{}
+	registration.SetInstallationId(claims.InstallationID)
+	kind := &probepb.ProbeKind{}
+	kind.SetClient(&probepb.ClientProbe{})
+	registration.SetKind(kind)
+	capability := &observationpb.Capability{}
+	capability.SetScheduleCapture(&observationpb.ScheduleCapture{})
+	registration.SetCapabilities([]*observationpb.Capability{capability})
+	registration.SetMaxConcurrency(1)
+	runtime := &commonpb.Runtime{}
+	runtime.SetComponentVersion(claims.RuntimeVersion)
+	runtime.SetBrowserRevision(claims.BrowserRevision)
+	runtime.SetPlatform(claims.Platform)
+	runtime.SetArchitecture(claims.Architecture)
+	registration.SetRuntime(runtime)
+	return registration
 }
 
 func testPrivateKey(t *testing.T) *ecdsa.PrivateKey {

@@ -3,8 +3,6 @@ package cgv
 import (
 	"strings"
 	"testing"
-
-	contracts "github.com/cineko-org/contracts/v3"
 )
 
 func TestParseTheaterCatalogResponseUsesSiteNumber(t *testing.T) {
@@ -16,7 +14,7 @@ func TestParseTheaterCatalogResponseUsesSiteNumber(t *testing.T) {
 	if len(rows) != 1 || rows[0].SiteNo != "0056" || rows[0].SiteName != "용산아이파크몰" || rows[0].Region != "서울" {
 		t.Fatalf("theater rows = %+v", rows)
 	}
-	if got := contracts.CatalogID(contracts.ProviderCGV, "theater", rows[0].SiteNo); got == contracts.CatalogID(contracts.ProviderCGV, "theater", rows[0].SiteName) {
+	if got := CatalogID(ProviderCGV, "theater", rows[0].SiteNo); got == CatalogID(ProviderCGV, "theater", rows[0].SiteName) {
 		t.Fatal("display name unexpectedly equals provider identity")
 	}
 }

@@ -9,14 +9,16 @@ import (
 	"encoding/pem"
 	"os"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
 
-	central "github.com/cineko-org/contracts/v3"
+	commonpb "github.com/cineko-org/contracts/gen/go/cineko/common"
+	observationpb "github.com/cineko-org/contracts/gen/go/cineko/observation"
+	probepb "github.com/cineko-org/contracts/gen/go/cineko/probe"
 	"github.com/cineko-org/probe/v2/internal/bootstrap"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestLoadContainerConfig(t *testing.T) {
@@ -37,14 +39,11 @@ func TestLoadContainerConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	if config.mode != "container" || config.centralURL != "https://central.cineko.invalid" || config.dataDir != directory ||
-		config.registration.InstallationID != "install_container_01" ||
-		config.registration.Kind != "container" || config.registration.NetworkHint != "home-seoul" ||
-		!reflect.DeepEqual(config.registration.Capabilities, []string{
-			central.CapabilityCGVCatalogCapture,
-			central.CapabilityCGVScheduleCapture,
-			central.CapabilityCGVSeatMapCapture,
-		}) ||
-		config.registration.Runtime.Platform != runtime.GOOS || config.registration.Runtime.Arch != runtime.GOARCH {
+		config.registration.GetInstallationId() != "install_container_01" ||
+		config.registration.GetKind().GetContainer() == nil || config.registration.GetNetworkHint() != "home-seoul" ||
+		len(config.registration.GetCapabilities()) != 3 || config.registration.GetCapabilities()[0].GetCatalogCapture() == nil ||
+		config.registration.GetCapabilities()[1].GetScheduleCapture() == nil || config.registration.GetCapabilities()[2].GetSeatMapCapture() == nil ||
+		config.registration.GetRuntime().GetPlatform() != runtime.GOOS || config.registration.GetRuntime().GetArchitecture() != runtime.GOARCH {
 		t.Fatalf("container config = %+v", config)
 	}
 	credential, err := config.credentials.Credential(context.Background())
@@ -69,25 +68,28 @@ func TestLoadClientConfigAndVerifyBootstrap(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	registration := central.RegisterProbeRequest{
-		InstallationID: "install_client_01", Kind: "client", Capabilities: []string{
-			central.CapabilityCGVCatalogCapture,
-			central.CapabilityCGVScheduleCapture,
-		},
-		MaxConcurrency: 1,
-		Runtime: central.Runtime{
-			Version: version, Protocol: central.ProtocolVersion, BrowserRevision: browserRevision,
-			Platform: runtime.GOOS, Arch: runtime.GOARCH,
-		},
-	}
+	registration := &probepb.RegisterRequest{}
+	registration.SetInstallationId("install_client_01")
+	kind := &probepb.ProbeKind{}
+	kind.SetClient(&probepb.ClientProbe{})
+	registration.SetKind(kind)
+	registration.SetCapabilities([]*observationpb.Capability{capabilityCatalogCapture(), capabilityScheduleCapture()})
+	registration.SetMaxConcurrency(1)
+	runtimeInfo := &commonpb.Runtime{}
+	runtimeInfo.SetComponentVersion(version)
+	runtimeInfo.SetBrowserRevision(browserRevision)
+	runtimeInfo.SetPlatform(runtime.GOOS)
+	runtimeInfo.SetArchitecture(runtime.GOARCH)
+	registration.SetRuntime(runtimeInfo)
 	signer, err := bootstrap.NewSigner("cineko-central", "cineko-probe", "current", privateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ticket, err := signer.Issue(bootstrap.Claims{
-		UserID: "user_01", TicketID: "ticket_01", InstallationID: registration.InstallationID,
-		DeviceID: "device_01", Kind: "client", Capabilities: registration.Capabilities,
-		MaxConcurrency: 1, Runtime: registration.Runtime,
+		UserID: "user_01", TicketID: "ticket_01", InstallationID: registration.GetInstallationId(),
+		DeviceID: "device_01", Kind: "client", Capabilities: []string{"cgv.catalog.capture", "cgv.schedule.capture"},
+		MaxConcurrency: 1, RuntimeVersion: version, BrowserRevision: browserRevision,
+		Platform: runtime.GOOS, Architecture: runtime.GOARCH,
 	}, time.Minute)
 	if err != nil {
 		t.Fatal(err)
@@ -95,7 +97,7 @@ func TestLoadClientConfigAndVerifyBootstrap(t *testing.T) {
 	t.Setenv("CINEKO_PROBE_MODE", "client")
 	t.Setenv("CINEKO_CENTRAL_URL", "https://central.cineko.invalid")
 	t.Setenv("CINEKO_PROBE_DATA_DIR", t.TempDir())
-	t.Setenv("CINEKO_INSTALLATION_ID", registration.InstallationID)
+	t.Setenv("CINEKO_INSTALLATION_ID", registration.GetInstallationId())
 	t.Setenv("CINEKO_PROBE_BOOTSTRAP_PUBLIC_KEYS", "current="+publicPath)
 
 	config, err := loadConfig(strings.NewReader(ticket + "\n"))
@@ -103,7 +105,7 @@ func TestLoadClientConfigAndVerifyBootstrap(t *testing.T) {
 		t.Fatal(err)
 	}
 	credential, err := config.credentials.Credential(context.Background())
-	if err != nil || credential != ticket || !reflect.DeepEqual(config.registration, registration) {
+	if err != nil || credential != ticket || !proto.Equal(config.registration, registration) {
 		t.Fatalf("client credential/config = %q, %v, %+v", credential, err, config.registration)
 	}
 }
@@ -201,10 +203,10 @@ func TestReadShortSecretBoundaries(t *testing.T) {
 
 func TestCredentialSourceRejectsMissingReader(t *testing.T) {
 	clearProbeEnvironment(t)
-	if _, err := credentialSource("client", nil, central.RegisterProbeRequest{}); err == nil {
+	if _, err := credentialSource("client", nil, &probepb.RegisterRequest{}); err == nil {
 		t.Fatal("nil Client credential pipe accepted")
 	}
-	if _, err := credentialSource("invalid", strings.NewReader(""), central.RegisterProbeRequest{}); err == nil {
+	if _, err := credentialSource("invalid", strings.NewReader(""), &probepb.RegisterRequest{}); err == nil {
 		t.Fatal("unknown credential mode accepted")
 	}
 }

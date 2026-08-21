@@ -46,12 +46,11 @@ jq -cn \
   --arg image "$image" \
   --arg imageDigest "$image_digest" \
   --arg publishedAt "$published_at" \
-  '{schemaVersion: 2, payload: {releases: [{
+  '{releases: [{
     channel: "stable",
     version: $version,
-    protocol: 3,
     browserRevision: $browserRevision,
     image: $image,
     imageDigest: $imageDigest,
     publishedAt: $publishedAt
-  }]}}'
+  }]}'
