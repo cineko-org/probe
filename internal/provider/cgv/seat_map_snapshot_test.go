@@ -67,6 +67,56 @@ func TestSeatMapTaskRequiresCanonicalExactShowtime(t *testing.T) {
 	}
 }
 
+func TestSeatMapTaskAcceptsExploratoryDateWindow(t *testing.T) {
+	t.Parallel()
+	theaterSource := "0056"
+	theaterID := CatalogID(ProviderCGV, "theater", theaterSource)
+	auditoriumSource := theaterSource + "/0007"
+	auditoriumID := CatalogID(ProviderCGV, "auditorium", auditoriumSource)
+	theater := &catalogpb.Theater{}
+	theater.SetId(theaterID)
+	theater.SetProviderId(ProviderCGV)
+	theater.SetSourceKey(theaterSource)
+	theater.SetRegion("서울")
+	theater.SetName("용산아이파크몰")
+	auditorium := &catalogpb.Auditorium{}
+	auditorium.SetId(auditoriumID)
+	auditorium.SetTheaterId(theaterID)
+	auditorium.SetSourceKey(auditoriumSource)
+	auditorium.SetName("IMAX관")
+	targetDate := &commonpb.LocalDate{}
+	targetDate.SetYear(2026)
+	targetDate.SetMonth(8)
+	targetDate.SetDay(21)
+	seatTask := &observationpb.SeatMapTask{}
+	seatTask.SetTheater(theater)
+	seatTask.SetAuditorium(auditorium)
+	seatTask.SetTargetDates([]*commonpb.LocalDate{targetDate})
+	seatTask.SetTimeZone("Asia/Seoul")
+	task := &observationpb.AssignmentTask{}
+	task.SetSeatMap(seatTask)
+	if err := validateSeatMapTask(task); err != nil {
+		t.Fatalf("exploratory task rejected: %v", err)
+	}
+	seatTask.SetTargetDates(nil)
+	if err := validateSeatMapTask(task); err == nil {
+		t.Fatal("seat-map task without showtime or dates accepted")
+	}
+}
+
+func TestFirstBookableSeatMapShowtimeMatchesAuditorium(t *testing.T) {
+	t.Parallel()
+	entries := []scheduleEntry{
+		{Showtime: ScheduleShowtime{ID: "wrong-auditorium", AuditoriumID: "auditorium-2", AvailableSeats: 20}},
+		{Showtime: ScheduleShowtime{ID: "sold-out", AuditoriumID: "auditorium-1", SoldOut: true}},
+		{Showtime: ScheduleShowtime{ID: "bookable", AuditoriumID: "auditorium-1", AvailableSeats: 1}},
+	}
+	showtime, found := firstBookableSeatMapShowtime(entries, "auditorium-1")
+	if !found || showtime.ID != "bookable" {
+		t.Fatalf("bookable showtime = %+v, %v", showtime, found)
+	}
+}
+
 func TestParseSeatMapLayoutPreservesStaticSemantics(t *testing.T) {
 	t.Parallel()
 	layout, err := parseSeatMapLayout([]byte(seatMapFixture), "auditorium-1")

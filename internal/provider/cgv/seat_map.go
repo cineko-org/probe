@@ -11,6 +11,7 @@ import (
 	"time"
 
 	catalogpb "github.com/cineko-org/contracts/gen/go/cineko/catalog"
+	commonpb "github.com/cineko-org/contracts/gen/go/cineko/common"
 	observationpb "github.com/cineko-org/contracts/gen/go/cineko/observation"
 	seatmappb "github.com/cineko-org/contracts/gen/go/cineko/seatmap"
 	"google.golang.org/protobuf/proto"
@@ -31,25 +32,13 @@ func (adapter *Adapter) CaptureSeatMap(
 		return nil, err
 	}
 	seatTask := task.GetSeatMap()
-	location, err := time.LoadLocation(seatTask.GetTimeZone())
-	if err != nil {
-		return nil, fmt.Errorf("load seat-map time zone: %w", err)
-	}
-	date := seatTask.GetShowtime().GetStartsAt().AsTime().In(location).Format(time.DateOnly)
 	if err := adapter.selectCinemaTheater(seatTask.GetTheater().GetRegion(), seatTask.GetTheater().GetName()); err != nil {
 		return nil, err
 	}
-	if err := adapter.selectDate(date); err != nil {
-		return nil, err
-	}
-	entries, err := adapter.extractSchedules(date, ScheduleTheater{
+	showtime, err := adapter.resolveSeatMapShowtime(seatTask, ScheduleTheater{
 		ID: seatTask.GetTheater().GetId(), ProviderID: seatTask.GetTheater().GetProviderId(),
 		SourceKey: seatTask.GetTheater().GetSourceKey(), Region: seatTask.GetTheater().GetRegion(), Name: seatTask.GetTheater().GetName(),
 	})
-	if err != nil {
-		return nil, err
-	}
-	showtime, err := exactSeatMapShowtime(entries, seatTask.GetShowtime())
 	if err != nil {
 		return nil, err
 	}
@@ -111,8 +100,7 @@ func layoutHash(layout *seatmappb.Layout) (string, error) {
 
 func validateSeatMapTask(task *observationpb.AssignmentTask) error {
 	seatTask := task.GetSeatMap()
-	if seatTask == nil || seatTask.GetAuditorium() == nil || seatTask.GetShowtime() == nil ||
-		seatTask.GetTheater() == nil || seatTask.GetShowtime().GetStartsAt() == nil {
+	if seatTask == nil || seatTask.GetAuditorium() == nil || seatTask.GetTheater() == nil {
 		return errors.New("seat-map assignment target is incomplete")
 	}
 	if err := validateSeatMapTheater(seatTask.GetTheater()); err != nil {
@@ -121,8 +109,12 @@ func validateSeatMapTask(task *observationpb.AssignmentTask) error {
 	if err := validateSeatMapAuditorium(seatTask); err != nil {
 		return err
 	}
-	if err := validateSeatMapShowtime(seatTask.GetShowtime()); err != nil {
-		return err
+	if seatTask.GetShowtime() != nil {
+		if err := validateSeatMapShowtime(seatTask.GetShowtime()); err != nil {
+			return err
+		}
+	} else if len(seatTask.GetTargetDates()) == 0 {
+		return errors.New("seat-map assignment capture window is required")
 	}
 	if strings.TrimSpace(seatTask.GetTimeZone()) == "" {
 		return errors.New("seat-map assignment time zone is required")
@@ -139,11 +131,84 @@ func validateSeatMapTheater(theater *catalogpb.Theater) error {
 }
 
 func validateSeatMapAuditorium(task *observationpb.SeatMapTask) error {
-	if task.GetAuditorium().GetTheaterId() != task.GetTheater().GetId() || task.GetShowtime().GetAuditorium().GetId() != task.GetAuditorium().GetId() ||
-		task.GetAuditorium().GetId() != CatalogID(ProviderCGV, "auditorium", task.GetAuditorium().GetSourceKey()) {
+	if task.GetAuditorium().GetTheaterId() != task.GetTheater().GetId() ||
+		task.GetAuditorium().GetId() != CatalogID(ProviderCGV, "auditorium", task.GetAuditorium().GetSourceKey()) ||
+		(task.GetShowtime() != nil && task.GetShowtime().GetAuditorium().GetId() != task.GetAuditorium().GetId()) {
 		return errors.New("seat-map auditorium identity is not canonical")
 	}
 	return nil
+}
+
+// resolveSeatMapShowtime uses an exact hint when supplied, otherwise it finds
+// the first bookable showtime in the requested auditorium and date window.
+func (adapter *Adapter) resolveSeatMapShowtime(
+	task *observationpb.SeatMapTask,
+	theater ScheduleTheater,
+) (ScheduleShowtime, error) {
+	if task.GetShowtime() != nil {
+		location, err := time.LoadLocation(task.GetTimeZone())
+		if err != nil {
+			return ScheduleShowtime{}, fmt.Errorf("load seat-map time zone: %w", err)
+		}
+		date := task.GetShowtime().GetStartsAt().AsTime().In(location).Format(time.DateOnly)
+		if err := adapter.selectDate(date); err != nil {
+			return ScheduleShowtime{}, err
+		}
+		entries, err := adapter.extractSchedules(date, theater)
+		if err != nil {
+			return ScheduleShowtime{}, err
+		}
+		return exactSeatMapShowtime(entries, task.GetShowtime())
+	}
+
+	selectableDates := 0
+	for _, targetDate := range task.GetTargetDates() {
+		date, err := seatMapTargetDate(targetDate)
+		if err != nil {
+			return ScheduleShowtime{}, err
+		}
+		if err := adapter.selectDate(date); err != nil {
+			if errors.Is(err, ErrTargetDateUnavailable) {
+				continue
+			}
+			return ScheduleShowtime{}, err
+		}
+		selectableDates++
+		entries, err := adapter.extractSchedules(date, theater)
+		if err != nil {
+			return ScheduleShowtime{}, err
+		}
+		if showtime, found := firstBookableSeatMapShowtime(entries, task.GetAuditorium().GetId()); found {
+			return showtime, nil
+		}
+	}
+	if selectableDates == 0 {
+		return ScheduleShowtime{}, fmt.Errorf("%w: no requested seat-map date was selectable", ErrUIContractChanged)
+	}
+	return ScheduleShowtime{}, errors.New("no bookable showtime is available for the requested auditorium")
+}
+
+// seatMapTargetDate converts one validated contract date to provider format.
+func seatMapTargetDate(value *commonpb.LocalDate) (string, error) {
+	if value == nil {
+		return "", errors.New("seat-map target date is missing")
+	}
+	date := time.Date(int(value.GetYear()), time.Month(value.GetMonth()), int(value.GetDay()), 0, 0, 0, 0, time.UTC)
+	if date.Year() != int(value.GetYear()) || int(date.Month()) != int(value.GetMonth()) || date.Day() != int(value.GetDay()) {
+		return "", errors.New("seat-map target date is invalid")
+	}
+	return date.Format(time.DateOnly), nil
+}
+
+// firstBookableSeatMapShowtime preserves provider order while excluding
+// unrelated auditoriums and showtimes that cannot open the seat page.
+func firstBookableSeatMapShowtime(entries []scheduleEntry, auditoriumID string) (ScheduleShowtime, bool) {
+	for _, entry := range entries {
+		if entry.Showtime.AuditoriumID == auditoriumID && !entry.Showtime.SoldOut && entry.Showtime.AvailableSeats > 0 {
+			return entry.Showtime, true
+		}
+	}
+	return ScheduleShowtime{}, false
 }
 
 func validateSeatMapShowtime(showtime *catalogpb.Showtime) error {

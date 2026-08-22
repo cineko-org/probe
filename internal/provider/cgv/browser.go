@@ -28,6 +28,7 @@ var (
 	ErrCaptchaRequired        = errors.New("manual CAPTCHA entry is required")
 	ErrProviderAccessBlocked  = errors.New("CGV blocked the current network identity")
 	ErrProviderThrottled      = errors.New("CGV temporarily rate limited requests")
+	ErrTargetDateUnavailable  = errors.New("CGV target date is not selectable")
 )
 
 // ProviderFailureHandler reports a provider-side network failure to the

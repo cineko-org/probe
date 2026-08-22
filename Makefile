@@ -28,14 +28,14 @@ test:
 	$(GO) test -mod=vendor -race ./...
 
 contract-check:
-	grep -Eq '^# github.com/cineko-org/contracts v0\.0\.0-20260821175959-3ce1fdcc5641( => ../contracts)?$$' vendor/modules.txt
+	grep -Eq '^# github.com/cineko-org/contracts v0\.0\.0-20260822040335-972957bebda7( => ../contracts)?$$' vendor/modules.txt
 	@! grep -Eq 'github.com/cineko-org/contracts/v[0-9]+' go.mod vendor/modules.txt
 
 contract-release-check:
 	@! grep -Eq '^[[:space:]]*replace([[:space:]]|\()' go.mod
-	@grep -Eq '^[[:space:]]*github.com/cineko-org/contracts v0\.0\.0-20260821175959-3ce1fdcc5641$$' go.mod
-	@grep -Eq '^# github.com/cineko-org/contracts v0\.0\.0-20260821175959-3ce1fdcc5641$$' vendor/modules.txt
-	@grep -Eq '^github.com/cineko-org/contracts v0\.0\.0-20260821175959-3ce1fdcc5641 h1:' go.sum
+	@grep -Eq '^[[:space:]]*github.com/cineko-org/contracts v0\.0\.0-20260822040335-972957bebda7$$' go.mod
+	@grep -Eq '^# github.com/cineko-org/contracts v0\.0\.0-20260822040335-972957bebda7$$' vendor/modules.txt
+	@grep -Eq '^github.com/cineko-org/contracts v0\.0\.0-20260822040335-972957bebda7 h1:' go.sum
 	@! grep -Eq 'github.com/cineko-org/contracts/v[0-9]+' go.mod go.sum vendor/modules.txt
 
 workflow-check:
