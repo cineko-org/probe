@@ -159,6 +159,12 @@ func TestCGVExecutorFailuresAndHelpers(t *testing.T) {
 		t.Fatalf("missing catalog egress policy error = %v", err)
 	}
 	task = testAssignmentTask()
+	setCatalogTask(task)
+	task.GetCatalog().SetProviderId("other")
+	if _, err := executor.CaptureCatalog(context.Background(), task); !errors.Is(err, errLocalExecution) {
+		t.Fatalf("unsupported catalog provider error = %v", err)
+	}
+	task = testAssignmentTask()
 	task.GetSchedule().GetTheater().SetProviderId("other")
 	if _, err := executor.Capture(context.Background(), task); err == nil {
 		t.Fatal("non-CGV theater accepted")
@@ -423,8 +429,7 @@ func testLocalDate(year, month, day int32) *commonpb.LocalDate {
 func setCatalogTask(task *observationpb.AssignmentTask) {
 	catalog := &observationpb.CatalogTask{}
 	base := testAssignmentTask().GetSchedule()
-	catalog.SetTheater(base.GetTheater())
-	catalog.SetTargetDates(base.GetTargetDates())
+	catalog.SetProviderId(cgv.ProviderCGV)
 	catalog.SetLocale(base.GetLocale())
 	catalog.SetTimeZone(base.GetTimeZone())
 	task.SetCatalog(catalog)

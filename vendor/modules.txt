@@ -18,7 +18,7 @@ github.com/cenkalti/backoff/v5
 # github.com/cespare/xxhash/v2 v2.3.0
 ## explicit; go 1.11
 github.com/cespare/xxhash/v2
-# github.com/cineko-org/contracts/v3 v3.5.1
+# github.com/cineko-org/contracts/v3 v3.5.3
 ## explicit; go 1.26
 github.com/cineko-org/contracts/v3/gen/go/cineko/catalog
 github.com/cineko-org/contracts/v3/gen/go/cineko/collection

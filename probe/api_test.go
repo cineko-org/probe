@@ -190,6 +190,35 @@ func TestHTTPAPIEmptyClaimAndErrors(t *testing.T) {
 	}
 }
 
+func TestHTTPAPIClaimsGlobalCatalogAssignment(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		lease := &probepb.AssignmentLease{}
+		lease.SetAssignmentId("assignment_catalog")
+		lease.SetLeaseToken("lease_catalog")
+		lease.SetLeaseExpiresAt(timestamppb.New(time.Date(2026, 8, 23, 5, 2, 0, 0, time.UTC)))
+		lease.SetNotBefore(timestamppb.New(time.Date(2026, 8, 23, 5, 0, 0, 0, time.UTC)))
+		lease.SetDeadline(timestamppb.New(time.Date(2026, 8, 23, 5, 10, 0, 0, time.UTC)))
+		lease.SetTask(catalogTaskForTest())
+		response := &probepb.ClaimAssignmentResponse{}
+		response.SetAssignment(lease)
+		writeProtoJSON(t, writer, response)
+	}))
+	defer server.Close()
+
+	api, err := NewHTTPAPI(server.URL, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := api.ClaimAssignment(context.Background(), Session{ProbeID: "probe", AccessToken: "token"})
+	if err != nil {
+		t.Fatalf("claim global catalog assignment: %v", err)
+	}
+	if response.GetAssignment().GetTask().GetCatalog().GetProviderId() != cgv.ProviderCGV {
+		t.Fatalf("catalog assignment = %+v", response)
+	}
+}
+
 func TestHTTPAPIValidationAndTransportFailures(t *testing.T) {
 	t.Parallel()
 	for _, value := range []string{"", "://", "ftp://example.com", "http://example.com", "https://user:pass@example.com"} {
@@ -287,6 +316,19 @@ func scheduleTaskForTest() *observationpb.AssignmentTask {
 	task := &observationpb.AssignmentTask{}
 	task.SetEgress(egress)
 	task.SetSchedule(schedule)
+	return task
+}
+
+func catalogTaskForTest() *observationpb.AssignmentTask {
+	catalog := &observationpb.CatalogTask{}
+	catalog.SetProviderId(cgv.ProviderCGV)
+	catalog.SetLocale("ko-KR")
+	catalog.SetTimeZone("Asia/Seoul")
+	egress := &commonpb.EgressPolicy{}
+	egress.SetManagedScan(&commonpb.ManagedScanEgress{})
+	task := &observationpb.AssignmentTask{}
+	task.SetEgress(egress)
+	task.SetCatalog(catalog)
 	return task
 }
 
