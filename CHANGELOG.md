@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.2](https://github.com/cineko-org/probe/compare/v2.5.1...v2.5.2) (2026-08-22)
+
+
+### Bug Fixes
+
+* discover seat map showtimes on demand ([#19](https://github.com/cineko-org/probe/issues/19)) ([a36ed68](https://github.com/cineko-org/probe/commit/a36ed6898417583d5403031c93a79b989ce0be3f))
+
 ## [2.5.1](https://github.com/cineko-org/probe/compare/v2.5.0...v2.5.1) (2026-08-21)
 
 
