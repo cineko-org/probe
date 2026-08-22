@@ -139,16 +139,16 @@ func TestSeatMapTaskAcceptsExploratoryDateWindow(t *testing.T) {
 	}
 }
 
-func TestFirstBookableSeatMapShowtimeMatchesAuditorium(t *testing.T) {
+func TestFirstSeatMapShowtimeMatchesAuditoriumIncludingSoldOut(t *testing.T) {
 	t.Parallel()
 	entries := []scheduleEntry{
 		{Showtime: ScheduleShowtime{ID: "wrong-auditorium", AuditoriumID: "auditorium-2", AvailableSeats: 20}},
 		{Showtime: ScheduleShowtime{ID: "sold-out", AuditoriumID: "auditorium-1", SoldOut: true}},
 		{Showtime: ScheduleShowtime{ID: "bookable", AuditoriumID: "auditorium-1", AvailableSeats: 1}},
 	}
-	showtime, found := firstBookableSeatMapShowtime(entries, "auditorium-1")
-	if !found || showtime.ID != "bookable" {
-		t.Fatalf("bookable showtime = %+v, %v", showtime, found)
+	showtime, found := firstSeatMapShowtime(entries, "auditorium-1")
+	if !found || showtime.ID != "sold-out" {
+		t.Fatalf("seat-map showtime = %+v, %v", showtime, found)
 	}
 }
 

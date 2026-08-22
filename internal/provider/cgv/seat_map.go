@@ -20,7 +20,7 @@ import (
 
 const seatMapResponseTimeout = 8 * time.Second
 
-// CaptureSeatMap visits a bookable showtime and returns layout and availability
+// CaptureSeatMap visits a current showtime and returns layout and availability
 // from the same provider response.
 func (adapter *Adapter) CaptureSeatMap(
 	ctx context.Context,
@@ -287,7 +287,7 @@ func validSeatMapAuditoriumIdentity(task *observationpb.SeatMapTask) bool {
 }
 
 // resolveSeatMapShowtime uses an exact hint when supplied, otherwise it finds
-// the first bookable showtime in the requested auditorium and date window.
+// the first current showtime in the requested auditorium and date window.
 func (adapter *Adapter) resolveSeatMapShowtime(
 	task *observationpb.SeatMapTask,
 	theater ScheduleTheater,
@@ -328,7 +328,7 @@ func (adapter *Adapter) resolveSeatMapShowtime(
 		if err != nil {
 			return ScheduleShowtime{}, err
 		}
-		if showtime, found := firstBookableSeatMapShowtime(entries, task.GetAuditorium().GetId()); found {
+		if showtime, found := firstSeatMapShowtime(entries, task.GetAuditorium().GetId()); found {
 			return showtime, nil
 		}
 	}
@@ -379,11 +379,11 @@ func seatMapTargetDateValue(value string) (string, error) {
 	return canonicalProviderDate(value)
 }
 
-// firstBookableSeatMapShowtime preserves provider order while excluding
-// unrelated auditoriums and showtimes that cannot open the seat page.
-func firstBookableSeatMapShowtime(entries []scheduleEntry, auditoriumID string) (ScheduleShowtime, bool) {
+// firstSeatMapShowtime preserves provider order while excluding unrelated
+// auditoriums. Sold-out and zero-availability rows remain valid layout sources.
+func firstSeatMapShowtime(entries []scheduleEntry, auditoriumID string) (ScheduleShowtime, bool) {
 	for _, entry := range entries {
-		if entry.Showtime.AuditoriumID == auditoriumID && !entry.Showtime.SoldOut && entry.Showtime.AvailableSeats > 0 {
+		if entry.Showtime.AuditoriumID == auditoriumID {
 			return entry.Showtime, true
 		}
 	}
