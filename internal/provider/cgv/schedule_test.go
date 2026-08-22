@@ -232,6 +232,18 @@ func TestDateSelectionLabelsPreserveTodayAndWeekdayVariants(t *testing.T) {
 	}
 }
 
+func TestSelectedDateMarkerMatchesCurrentCGVContract(t *testing.T) {
+	t.Parallel()
+	if !selectedButtonTitle("선택됨") {
+		t.Fatal("current selected button title was rejected")
+	}
+	for _, title := range []string{"", "선택", "selected"} {
+		if selectedButtonTitle(title) {
+			t.Fatalf("non-selected button title %q was accepted", title)
+		}
+	}
+}
+
 func testScheduleTheater() ScheduleTheater {
 	return ScheduleTheater{
 		ID:         CatalogID(ProviderCGV, "theater", "0056"),
