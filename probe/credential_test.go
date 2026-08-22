@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	probepb "github.com/cineko-org/contracts/gen/go/cineko/probe"
+	probepb "github.com/cineko-org/contracts/v3/gen/go/cineko/probe"
 	"github.com/cineko-org/probe/v2/internal/bootstrap"
 	"google.golang.org/protobuf/proto"
 )

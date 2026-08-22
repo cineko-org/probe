@@ -3,13 +3,14 @@ package probe
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
-	catalogpb "github.com/cineko-org/contracts/gen/go/cineko/catalog"
-	commonpb "github.com/cineko-org/contracts/gen/go/cineko/common"
-	observationpb "github.com/cineko-org/contracts/gen/go/cineko/observation"
-	seatmappb "github.com/cineko-org/contracts/gen/go/cineko/seatmap"
+	catalogpb "github.com/cineko-org/contracts/v3/gen/go/cineko/catalog"
+	commonpb "github.com/cineko-org/contracts/v3/gen/go/cineko/common"
+	observationpb "github.com/cineko-org/contracts/v3/gen/go/cineko/observation"
+	seatmappb "github.com/cineko-org/contracts/v3/gen/go/cineko/seatmap"
 	"github.com/cineko-org/probe/v2/internal/egress"
 	"github.com/cineko-org/probe/v2/internal/provider/cgv"
 	cgvbrowser "github.com/cineko-org/probe/v2/internal/provider/cgv/browser"
@@ -57,15 +58,31 @@ func TestCGVExecutorCaptureMapping(t *testing.T) {
 		t.Fatalf("browser task = %+v", openedTask)
 	}
 	showtime := values[0].GetShowtimes()[0]
-	if showtime.GetId() != cgv.CatalogID(cgv.ProviderCGV, "showtime", showtime.GetSourceKey()) ||
+	showtimeSite, showtimeDate, showtimeScreen, showtimeSequence, showtimeIdentityOK := cgv.ShowtimeIdentityValues(showtime)
+	auditoriumSite, auditoriumScreen, auditoriumIdentityOK := cgv.AuditoriumIdentityValues(showtime.GetAuditorium())
+	movieNo := showtime.GetMovie().GetIdentity().GetCgv().GetMovieNo()
+	if !showtimeIdentityOK || showtime.GetId() != cgv.CatalogID(cgv.ProviderCGV, "showtime", strings.Join([]string{showtimeSite, showtimeDate, showtimeScreen, showtimeSequence}, "/")) ||
 		showtime.GetProviderId() != cgv.ProviderCGV || showtime.GetTheaterId() != testAssignmentTask().GetSchedule().GetTheater().GetId() ||
-		showtime.GetAuditorium().GetId() != cgv.CatalogID(cgv.ProviderCGV, "auditorium", showtime.GetAuditorium().GetSourceKey()) ||
+		!auditoriumIdentityOK || showtime.GetAuditorium().GetId() != cgv.CatalogID(cgv.ProviderCGV, "auditorium", auditoriumSite+"/"+auditoriumScreen) ||
 		showtime.GetAuditorium().GetTheaterId() != showtime.GetTheaterId() || showtime.GetAuditorium().GetName() != "6관 (Laser)" ||
-		showtime.GetMovie().GetId() != cgv.CatalogID(cgv.ProviderCGV, "movie", showtime.GetMovie().GetSourceKey()) ||
+		showtime.GetMovie().GetId() != cgv.CatalogID(cgv.ProviderCGV, "movie", movieNo) ||
 		showtime.GetMovie().GetTitle() != "명탐정 코난-하이웨이의 타천사" || showtime.GetMovie().GetPosterUrl() == "" ||
 		showtime.GetEndsAt().AsTime().Sub(showtime.GetStartsAt().AsTime()) != time.Hour+59*time.Minute || !showtime.GetSoldOut() ||
 		!values[0].GetObservedAt().AsTime().Equal(now.Add(time.Second)) {
 		t.Fatalf("showtime = %+v, observed = %v", showtime, values[0].GetObservedAt())
+	}
+}
+
+func TestValidateCanonicalShowtimeRejectsRelationalIdentityMismatch(t *testing.T) {
+	t.Parallel()
+	showtime := canonicalTestShowtime(cgv.ScheduleShowtime{})
+	if err := validateCanonicalShowtime(showtime); err != nil {
+		t.Fatalf("canonical showtime rejected: %v", err)
+	}
+	showtime.AuditoriumSourceKey = "0056/0008"
+	showtime.AuditoriumID = cgv.CatalogID(cgv.ProviderCGV, "auditorium", showtime.AuditoriumSourceKey)
+	if err := validateCanonicalShowtime(showtime); !errors.Is(err, cgv.ErrIdentityMismatch) {
+		t.Fatalf("showtime/auditorium relation error = %v", err)
 	}
 }
 
@@ -126,19 +143,19 @@ func TestCGVExecutorFailuresAndHelpers(t *testing.T) {
 		open: func(context.Context, cgvbrowser.Task) (scheduleBrowser, error) { return nil, errIO }, clock: time.Now,
 	}
 	task := &observationpb.AssignmentTask{}
-	if _, err := executor.Capture(context.Background(), task); err == nil {
-		t.Fatal("unsupported task accepted")
+	if _, err := executor.Capture(context.Background(), task); !errors.Is(err, errLocalExecution) {
+		t.Fatalf("unsupported task error = %v", err)
 	}
-	if _, err := executor.CaptureCatalog(context.Background(), task); err == nil {
-		t.Fatal("unsupported catalog task accepted")
+	if _, err := executor.CaptureCatalog(context.Background(), task); !errors.Is(err, errLocalExecution) {
+		t.Fatalf("unsupported catalog task error = %v", err)
 	}
 	task = testAssignmentTask()
 	task.GetEgress().ClearManagedScan()
-	if _, err := executor.Capture(context.Background(), task); err == nil {
+	if _, err := executor.Capture(context.Background(), task); !errors.Is(err, errLocalExecution) {
 		t.Fatalf("missing schedule egress policy error = %v", err)
 	}
 	setCatalogTask(task)
-	if _, err := executor.CaptureCatalog(context.Background(), task); err == nil {
+	if _, err := executor.CaptureCatalog(context.Background(), task); !errors.Is(err, errLocalExecution) {
 		t.Fatalf("missing catalog egress policy error = %v", err)
 	}
 	task = testAssignmentTask()
@@ -167,8 +184,8 @@ func TestCGVExecutorFailuresAndHelpers(t *testing.T) {
 	executor.open = func(context.Context, cgvbrowser.Task) (scheduleBrowser, error) {
 		return &scheduleOnlyBrowser{}, nil
 	}
-	if _, err := executor.CaptureCatalog(context.Background(), task); err == nil {
-		t.Fatal("catalog-unsupported browser accepted")
+	if _, err := executor.CaptureCatalog(context.Background(), task); !errors.Is(err, errLocalExecution) {
+		t.Fatalf("catalog-unsupported browser error = %v", err)
 	}
 	catalogBrowser := &fakeScheduleBrowser{err: errIO}
 	executor.open = func(context.Context, cgvbrowser.Task) (scheduleBrowser, error) {
@@ -225,9 +242,8 @@ func TestCGVExecutorFailuresAndHelpers(t *testing.T) {
 
 func TestCGVExecutorDelegatesSeatMapCapture(t *testing.T) {
 	t.Parallel()
-	seatMap := &seatmappb.Snapshot{}
-	seatMap.SetId("seat_map")
-	delegate := &fakeSeatMapExecutor{seatMap: seatMap}
+	seatMap := validLiveSeatObservation("showtime", "auditorium")
+	delegate := &fakeSeatMapExecutor{liveSeat: seatMap}
 	executor := &CGVExecutor{seatMap: delegate}
 	task := seatMapAssignmentTask()
 	value, err := executor.CaptureSeatMap(context.Background(), task)
@@ -249,9 +265,8 @@ func TestCGVExecutorDelegatesSeatMapCapture(t *testing.T) {
 
 func TestCGVExecutorCapturesSeatMapWithStandaloneBrowser(t *testing.T) {
 	t.Parallel()
-	want := &seatmappb.Snapshot{}
-	want.SetId("seat_map")
-	browser := &fakeScheduleBrowser{seatMap: want}
+	want := validLiveSeatObservation("showtime", "auditorium")
+	browser := &fakeScheduleBrowser{liveSeat: want}
 	executor := &CGVExecutor{open: func(context.Context, cgvbrowser.Task) (scheduleBrowser, error) {
 		return browser, nil
 	}}
@@ -274,16 +289,16 @@ func TestCGVExecutorCapturesSeatMapWithStandaloneBrowser(t *testing.T) {
 }
 
 type fakeSeatMapExecutor struct {
-	seatMap *seatmappb.Snapshot
-	calls   int
+	liveSeat *seatmappb.LiveSeatObservation
+	calls    int
 }
 
 func (executor *fakeSeatMapExecutor) CaptureSeatMap(
 	context.Context,
 	*observationpb.AssignmentTask,
-) (*seatmappb.Snapshot, error) {
+) (*seatmappb.LiveSeatObservation, error) {
 	executor.calls++
-	return executor.seatMap, nil
+	return executor.liveSeat, nil
 }
 
 func testAssignmentTask() *observationpb.AssignmentTask {
@@ -291,7 +306,7 @@ func testAssignmentTask() *observationpb.AssignmentTask {
 	theater := &catalogpb.Theater{}
 	theater.SetId(cgv.CatalogID(cgv.ProviderCGV, "theater", sourceKey))
 	theater.SetProviderId(cgv.ProviderCGV)
-	theater.SetSourceKey(sourceKey)
+	theater.SetIdentity(cgv.NewTheaterIdentity(sourceKey))
 	theater.SetRegion("서울")
 	theater.SetName("용산아이파크몰")
 	schedule := &observationpb.ScheduleTask{}
@@ -307,15 +322,47 @@ func testAssignmentTask() *observationpb.AssignmentTask {
 	return task
 }
 
+func sourceKeyForTheater(theater *catalogpb.Theater) string {
+	value, _ := cgv.TheaterSiteNo(theater)
+	return value
+}
+
+func validLiveSeatObservation(showtimeID, auditoriumID string) *seatmappb.LiveSeatObservation {
+	seat := &seatmappb.Seat{}
+	seat.SetId("seat-1")
+	seat.SetAuditoriumId(auditoriumID)
+	seat.SetLabel("A1")
+	layout := &seatmappb.Layout{}
+	layout.SetSeats([]*seatmappb.Seat{seat})
+	snapshot := &seatmappb.Snapshot{}
+	snapshot.SetId("seat-map")
+	snapshot.SetAuditoriumId(auditoriumID)
+	snapshot.SetLayoutHash(strings.Repeat("a", 64))
+	snapshot.SetCapacity(1)
+	snapshot.SetLayout(layout)
+	snapshot.SetObservedAt(timestamppb.New(time.Unix(1, 0).UTC()))
+	available := &seatmappb.AvailabilitySnapshot{}
+	available.SetShowtimeId(showtimeID)
+	available.SetAuditoriumId(auditoriumID)
+	available.SetLayoutHash(strings.Repeat("a", 64))
+	available.SetAvailableSeats([]*seatmappb.AvailableSeat{{}})
+	available.GetAvailableSeats()[0].SetSeatId("seat-1")
+	available.SetObservedAt(timestamppb.New(time.Unix(1, 0).UTC()))
+	live := &seatmappb.LiveSeatObservation{}
+	live.SetLayout(snapshot)
+	live.SetAvailability(available)
+	return live
+}
+
 func canonicalTestShowtime(value cgv.ScheduleShowtime) cgv.ScheduleShowtime {
 	theater := testAssignmentTask().GetSchedule().GetTheater()
 	value.ProviderID = cgv.ProviderCGV
 	value.TheaterID = theater.GetId()
 	value.MovieSourceKey = "00001234"
 	value.MovieID = cgv.CatalogID(cgv.ProviderCGV, "movie", value.MovieSourceKey)
-	value.AuditoriumSourceKey = theater.GetSourceKey() + "/0007"
+	value.AuditoriumSourceKey = sourceKeyForTheater(theater) + "/0007"
 	value.AuditoriumID = cgv.CatalogID(cgv.ProviderCGV, "auditorium", value.AuditoriumSourceKey)
-	value.SourceKey = theater.GetSourceKey() + "/2026-08-12/0007/0003"
+	value.SourceKey = sourceKeyForTheater(theater) + "/2026-08-12/0007/0003"
 	value.ID = cgv.CatalogID(cgv.ProviderCGV, "showtime", value.SourceKey)
 	return value
 }
@@ -323,7 +370,7 @@ func canonicalTestShowtime(value cgv.ScheduleShowtime) cgv.ScheduleShowtime {
 type fakeScheduleBrowser struct {
 	captures     []cgv.ScheduleCapture
 	catalog      cgv.CatalogCapture
-	seatMap      *seatmappb.Snapshot
+	liveSeat     *seatmappb.LiveSeatObservation
 	err          error
 	closed       bool
 	seatMapCalls int
@@ -346,9 +393,9 @@ func (browser *fakeScheduleBrowser) CaptureCatalog(context.Context) (cgv.Catalog
 func (browser *fakeScheduleBrowser) CaptureSeatMap(
 	context.Context,
 	*observationpb.AssignmentTask,
-) (*seatmappb.Snapshot, error) {
+) (*seatmappb.LiveSeatObservation, error) {
 	browser.seatMapCalls++
-	return browser.seatMap, browser.err
+	return browser.liveSeat, browser.err
 }
 
 type scheduleOnlyBrowser struct{}
@@ -389,21 +436,24 @@ func seatMapAssignmentTask() *observationpb.AssignmentTask {
 	auditorium := &catalogpb.Auditorium{}
 	auditorium.SetId(cgv.CatalogID(cgv.ProviderCGV, "auditorium", "0056/0007"))
 	auditorium.SetTheaterId(theater.GetId())
-	auditorium.SetSourceKey("0056/0007")
+	auditorium.SetIdentity(cgv.NewAuditoriumIdentity("0056", "0007"))
 	auditorium.SetName("6관")
 	showtime := &catalogpb.Showtime{}
 	showtime.SetId(cgv.CatalogID(cgv.ProviderCGV, "showtime", "0056/2026-08-12/0007/0003"))
 	showtime.SetProviderId(cgv.ProviderCGV)
-	showtime.SetSourceKey("0056/2026-08-12/0007/0003")
 	showtime.SetTheaterId(theater.GetId())
 	showtime.SetAuditorium(auditorium)
 	movie := &catalogpb.Movie{}
 	movie.SetId(cgv.CatalogID(cgv.ProviderCGV, "movie", "00001234"))
 	movie.SetProviderId(cgv.ProviderCGV)
-	movie.SetSourceKey("00001234")
+	movie.SetIdentity(cgv.NewMovieIdentity("00001234"))
 	movie.SetTitle("Example Movie")
 	showtime.SetMovie(movie)
-	showtime.SetScheduleDate(testLocalDate(2026, 8, 12))
+	showtimeIdentity, err := cgv.NewShowtimeIdentity("0056", "2026-08-12", "0007", "0003")
+	if err != nil {
+		panic(err)
+	}
+	showtime.SetIdentity(showtimeIdentity)
 	showtime.SetStartsAt(timestamppb.New(time.Date(2026, 8, 12, 19, 0, 0, 0, time.UTC)))
 	showtime.SetEndsAt(timestamppb.New(time.Date(2026, 8, 12, 21, 0, 0, 0, time.UTC)))
 	seatTask := &observationpb.SeatMapTask{}

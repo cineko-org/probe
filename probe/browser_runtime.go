@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	probepb "github.com/cineko-org/contracts/gen/go/cineko/probe"
+	probepb "github.com/cineko-org/contracts/v3/gen/go/cineko/probe"
 	cgvbrowser "github.com/cineko-org/probe/v2/internal/provider/cgv/browser"
 )
 

@@ -20,9 +20,9 @@ import (
 	"testing"
 	"time"
 
-	commonpb "github.com/cineko-org/contracts/gen/go/cineko/common"
-	observationpb "github.com/cineko-org/contracts/gen/go/cineko/observation"
-	probepb "github.com/cineko-org/contracts/gen/go/cineko/probe"
+	commonpb "github.com/cineko-org/contracts/v3/gen/go/cineko/common"
+	observationpb "github.com/cineko-org/contracts/v3/gen/go/cineko/observation"
+	probepb "github.com/cineko-org/contracts/v3/gen/go/cineko/probe"
 )
 
 func TestBootstrapTicketRoundTripAndAuthorization(t *testing.T) {

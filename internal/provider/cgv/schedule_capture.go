@@ -1,6 +1,7 @@
 package cgv
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -27,6 +28,9 @@ func (adapter *Adapter) captureProviderResponse(response playwright.Response) {
 		captured.err = providerHTTPError(captured.status)
 	} else {
 		captured.body, captured.err = response.Body()
+		if captured.err != nil {
+			captured.err = fmt.Errorf("%w: read provider response body: %w", ErrProviderTransport, captured.err)
+		}
 		if captured.err == nil && len(captured.body) > maxScheduleResponseBytes {
 			captured.err = fmt.Errorf("CGV provider response exceeds %d bytes", maxScheduleResponseBytes)
 			captured.body = nil
@@ -53,7 +57,7 @@ func (adapter *Adapter) resetProviderResponses() {
 }
 
 func (adapter *Adapter) captureScheduleRows() ([]providerScheduleRow, error) {
-	captures := adapter.takeProviderResponses(scheduleResponsePath, legacyScheduleResponsePath)
+	captures := adapter.takeProviderResponses(scheduleResponsePath)
 	if len(captures) == 0 {
 		return nil, errScheduleResponseMissing
 	}
@@ -80,15 +84,25 @@ func (adapter *Adapter) captureScheduleRows() ([]providerScheduleRow, error) {
 }
 
 func providerHTTPError(status int) error {
-	switch status {
-	case 401:
+	switch {
+	case status >= 300 && status <= 399:
+		return fmt.Errorf("%w: HTTP %d", ErrUIContractChanged, status)
+	case status == 400 || status == 422:
+		return fmt.Errorf("%w: HTTP %d", ErrProviderInvalidResult, status)
+	case status == 401:
 		return fmt.Errorf("%w: HTTP %d", ErrAuthenticationRequired, status)
-	case 403:
+	case status == 403:
 		return fmt.Errorf("%w: HTTP %d", ErrProviderAccessBlocked, status)
-	case 429:
+	case status == 408 || status == 504:
+		return fmt.Errorf("%w: HTTP %d", context.DeadlineExceeded, status)
+	case status == 429:
 		return fmt.Errorf("%w: HTTP %d", ErrProviderThrottled, status)
+	case status >= 500 && status <= 599:
+		return fmt.Errorf("%w: HTTP %d", ErrProviderServerError, status)
+	case status >= 400 && status <= 499:
+		return fmt.Errorf("%w: HTTP %d", ErrUIContractChanged, status)
 	default:
-		return fmt.Errorf("CGV provider response returned HTTP %d", status)
+		return fmt.Errorf("%w: HTTP %d", ErrProviderTransport, status)
 	}
 }
 

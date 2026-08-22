@@ -8,6 +8,7 @@ package seatmap
 
 import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
+	collection "github.com/cineko-org/contracts/v3/gen/go/cineko/collection"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -1658,8 +1659,7 @@ func (b0 AvailableSeat_builder) Build() *AvailableSeat {
 	return m0
 }
 
-// AvailabilitySnapshot is one complete live view for an exact showtime. The
-// static layout remains a separately versioned auditorium resource.
+// AvailabilitySnapshot is one complete live view for an exact showtime.
 type AvailabilitySnapshot struct {
 	state                     protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_ShowtimeId     *string                `protobuf:"bytes,1,opt,name=showtime_id,json=showtimeId"`
@@ -1845,27 +1845,30 @@ func (b0 AvailabilitySnapshot_builder) Build() *AvailabilitySnapshot {
 	return m0
 }
 
-type Ready struct {
-	state               protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_Snapshot *Snapshot              `protobuf:"bytes,1,opt,name=snapshot"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+// LiveSeatObservation is the atomic Probe result for an exact showtime. The
+// provider response supplies both the current layout and current availability.
+type LiveSeatObservation struct {
+	state                   protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Layout       *Snapshot              `protobuf:"bytes,1,opt,name=layout"`
+	xxx_hidden_Availability *AvailabilitySnapshot  `protobuf:"bytes,2,opt,name=availability"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
-func (x *Ready) Reset() {
-	*x = Ready{}
+func (x *LiveSeatObservation) Reset() {
+	*x = LiveSeatObservation{}
 	mi := &file_cineko_seatmap_seatmap_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *Ready) String() string {
+func (x *LiveSeatObservation) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*Ready) ProtoMessage() {}
+func (*LiveSeatObservation) ProtoMessage() {}
 
-func (x *Ready) ProtoReflect() protoreflect.Message {
+func (x *LiveSeatObservation) ProtoReflect() protoreflect.Message {
 	mi := &file_cineko_seatmap_seatmap_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1877,233 +1880,77 @@ func (x *Ready) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-func (x *Ready) GetSnapshot() *Snapshot {
+func (x *LiveSeatObservation) GetLayout() *Snapshot {
 	if x != nil {
-		return x.xxx_hidden_Snapshot
+		return x.xxx_hidden_Layout
 	}
 	return nil
 }
 
-func (x *Ready) SetSnapshot(v *Snapshot) {
-	x.xxx_hidden_Snapshot = v
-}
-
-func (x *Ready) HasSnapshot() bool {
-	if x == nil {
-		return false
-	}
-	return x.xxx_hidden_Snapshot != nil
-}
-
-func (x *Ready) ClearSnapshot() {
-	x.xxx_hidden_Snapshot = nil
-}
-
-type Ready_builder struct {
-	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
-
-	Snapshot *Snapshot
-}
-
-func (b0 Ready_builder) Build() *Ready {
-	m0 := &Ready{}
-	b, x := &b0, m0
-	_, _ = b, x
-	x.xxx_hidden_Snapshot = b.Snapshot
-	return m0
-}
-
-type CaptureQueued struct {
-	state                  protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_TaskId      *string                `protobuf:"bytes,1,opt,name=task_id,json=taskId"`
-	xxx_hidden_NextCheckAt *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=next_check_at,json=nextCheckAt"`
-	XXX_raceDetectHookData protoimpl.RaceDetectHookData
-	XXX_presence           [1]uint32
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
-}
-
-func (x *CaptureQueued) Reset() {
-	*x = CaptureQueued{}
-	mi := &file_cineko_seatmap_seatmap_proto_msgTypes[8]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *CaptureQueued) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*CaptureQueued) ProtoMessage() {}
-
-func (x *CaptureQueued) ProtoReflect() protoreflect.Message {
-	mi := &file_cineko_seatmap_seatmap_proto_msgTypes[8]
+func (x *LiveSeatObservation) GetAvailability() *AvailabilitySnapshot {
 	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-func (x *CaptureQueued) GetTaskId() string {
-	if x != nil {
-		if x.xxx_hidden_TaskId != nil {
-			return *x.xxx_hidden_TaskId
-		}
-		return ""
-	}
-	return ""
-}
-
-func (x *CaptureQueued) GetNextCheckAt() *timestamppb.Timestamp {
-	if x != nil {
-		return x.xxx_hidden_NextCheckAt
+		return x.xxx_hidden_Availability
 	}
 	return nil
 }
 
-func (x *CaptureQueued) SetTaskId(v string) {
-	x.xxx_hidden_TaskId = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 2)
+func (x *LiveSeatObservation) SetLayout(v *Snapshot) {
+	x.xxx_hidden_Layout = v
 }
 
-func (x *CaptureQueued) SetNextCheckAt(v *timestamppb.Timestamp) {
-	x.xxx_hidden_NextCheckAt = v
+func (x *LiveSeatObservation) SetAvailability(v *AvailabilitySnapshot) {
+	x.xxx_hidden_Availability = v
 }
 
-func (x *CaptureQueued) HasTaskId() bool {
+func (x *LiveSeatObservation) HasLayout() bool {
 	if x == nil {
 		return false
 	}
-	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
+	return x.xxx_hidden_Layout != nil
 }
 
-func (x *CaptureQueued) HasNextCheckAt() bool {
+func (x *LiveSeatObservation) HasAvailability() bool {
 	if x == nil {
 		return false
 	}
-	return x.xxx_hidden_NextCheckAt != nil
+	return x.xxx_hidden_Availability != nil
 }
 
-func (x *CaptureQueued) ClearTaskId() {
-	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
-	x.xxx_hidden_TaskId = nil
+func (x *LiveSeatObservation) ClearLayout() {
+	x.xxx_hidden_Layout = nil
 }
 
-func (x *CaptureQueued) ClearNextCheckAt() {
-	x.xxx_hidden_NextCheckAt = nil
+func (x *LiveSeatObservation) ClearAvailability() {
+	x.xxx_hidden_Availability = nil
 }
 
-type CaptureQueued_builder struct {
+type LiveSeatObservation_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	TaskId      *string
-	NextCheckAt *timestamppb.Timestamp
+	Layout       *Snapshot
+	Availability *AvailabilitySnapshot
 }
 
-func (b0 CaptureQueued_builder) Build() *CaptureQueued {
-	m0 := &CaptureQueued{}
+func (b0 LiveSeatObservation_builder) Build() *LiveSeatObservation {
+	m0 := &LiveSeatObservation{}
 	b, x := &b0, m0
 	_, _ = b, x
-	if b.TaskId != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 2)
-		x.xxx_hidden_TaskId = b.TaskId
-	}
-	x.xxx_hidden_NextCheckAt = b.NextCheckAt
-	return m0
-}
-
-type Unverifiable struct {
-	state                  protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_ReasonCode  *string                `protobuf:"bytes,1,opt,name=reason_code,json=reasonCode"`
-	XXX_raceDetectHookData protoimpl.RaceDetectHookData
-	XXX_presence           [1]uint32
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
-}
-
-func (x *Unverifiable) Reset() {
-	*x = Unverifiable{}
-	mi := &file_cineko_seatmap_seatmap_proto_msgTypes[9]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Unverifiable) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Unverifiable) ProtoMessage() {}
-
-func (x *Unverifiable) ProtoReflect() protoreflect.Message {
-	mi := &file_cineko_seatmap_seatmap_proto_msgTypes[9]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-func (x *Unverifiable) GetReasonCode() string {
-	if x != nil {
-		if x.xxx_hidden_ReasonCode != nil {
-			return *x.xxx_hidden_ReasonCode
-		}
-		return ""
-	}
-	return ""
-}
-
-func (x *Unverifiable) SetReasonCode(v string) {
-	x.xxx_hidden_ReasonCode = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 1)
-}
-
-func (x *Unverifiable) HasReasonCode() bool {
-	if x == nil {
-		return false
-	}
-	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
-}
-
-func (x *Unverifiable) ClearReasonCode() {
-	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
-	x.xxx_hidden_ReasonCode = nil
-}
-
-type Unverifiable_builder struct {
-	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
-
-	ReasonCode *string
-}
-
-func (b0 Unverifiable_builder) Build() *Unverifiable {
-	m0 := &Unverifiable{}
-	b, x := &b0, m0
-	_, _ = b, x
-	if b.ReasonCode != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 1)
-		x.xxx_hidden_ReasonCode = b.ReasonCode
-	}
+	x.xxx_hidden_Layout = b.Layout
+	x.xxx_hidden_Availability = b.Availability
 	return m0
 }
 
 type Resolution struct {
-	state             protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_Result isResolution_Result    `protobuf_oneof:"result"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	state               protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Snapshot *Snapshot              `protobuf:"bytes,1,opt,name=snapshot"`
+	xxx_hidden_State    *collection.State      `protobuf:"bytes,2,opt,name=state"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *Resolution) Reset() {
 	*x = Resolution{}
-	mi := &file_cineko_seatmap_seatmap_proto_msgTypes[10]
+	mi := &file_cineko_seatmap_seatmap_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2115,7 +1962,7 @@ func (x *Resolution) String() string {
 func (*Resolution) ProtoMessage() {}
 
 func (x *Resolution) ProtoReflect() protoreflect.Message {
-	mi := &file_cineko_seatmap_seatmap_proto_msgTypes[10]
+	mi := &file_cineko_seatmap_seatmap_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2126,197 +1973,79 @@ func (x *Resolution) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-func (x *Resolution) GetReady() *Ready {
+func (x *Resolution) GetSnapshot() *Snapshot {
 	if x != nil {
-		if x, ok := x.xxx_hidden_Result.(*resolution_Ready); ok {
-			return x.Ready
-		}
+		return x.xxx_hidden_Snapshot
 	}
 	return nil
 }
 
-func (x *Resolution) GetCaptureQueued() *CaptureQueued {
+func (x *Resolution) GetState() *collection.State {
 	if x != nil {
-		if x, ok := x.xxx_hidden_Result.(*resolution_CaptureQueued); ok {
-			return x.CaptureQueued
-		}
+		return x.xxx_hidden_State
 	}
 	return nil
 }
 
-func (x *Resolution) GetUnverifiable() *Unverifiable {
-	if x != nil {
-		if x, ok := x.xxx_hidden_Result.(*resolution_Unverifiable); ok {
-			return x.Unverifiable
-		}
-	}
-	return nil
+func (x *Resolution) SetSnapshot(v *Snapshot) {
+	x.xxx_hidden_Snapshot = v
 }
 
-func (x *Resolution) SetReady(v *Ready) {
-	if v == nil {
-		x.xxx_hidden_Result = nil
-		return
-	}
-	x.xxx_hidden_Result = &resolution_Ready{v}
+func (x *Resolution) SetState(v *collection.State) {
+	x.xxx_hidden_State = v
 }
 
-func (x *Resolution) SetCaptureQueued(v *CaptureQueued) {
-	if v == nil {
-		x.xxx_hidden_Result = nil
-		return
-	}
-	x.xxx_hidden_Result = &resolution_CaptureQueued{v}
-}
-
-func (x *Resolution) SetUnverifiable(v *Unverifiable) {
-	if v == nil {
-		x.xxx_hidden_Result = nil
-		return
-	}
-	x.xxx_hidden_Result = &resolution_Unverifiable{v}
-}
-
-func (x *Resolution) HasResult() bool {
+func (x *Resolution) HasSnapshot() bool {
 	if x == nil {
 		return false
 	}
-	return x.xxx_hidden_Result != nil
+	return x.xxx_hidden_Snapshot != nil
 }
 
-func (x *Resolution) HasReady() bool {
+func (x *Resolution) HasState() bool {
 	if x == nil {
 		return false
 	}
-	_, ok := x.xxx_hidden_Result.(*resolution_Ready)
-	return ok
+	return x.xxx_hidden_State != nil
 }
 
-func (x *Resolution) HasCaptureQueued() bool {
-	if x == nil {
-		return false
-	}
-	_, ok := x.xxx_hidden_Result.(*resolution_CaptureQueued)
-	return ok
+func (x *Resolution) ClearSnapshot() {
+	x.xxx_hidden_Snapshot = nil
 }
 
-func (x *Resolution) HasUnverifiable() bool {
-	if x == nil {
-		return false
-	}
-	_, ok := x.xxx_hidden_Result.(*resolution_Unverifiable)
-	return ok
-}
-
-func (x *Resolution) ClearResult() {
-	x.xxx_hidden_Result = nil
-}
-
-func (x *Resolution) ClearReady() {
-	if _, ok := x.xxx_hidden_Result.(*resolution_Ready); ok {
-		x.xxx_hidden_Result = nil
-	}
-}
-
-func (x *Resolution) ClearCaptureQueued() {
-	if _, ok := x.xxx_hidden_Result.(*resolution_CaptureQueued); ok {
-		x.xxx_hidden_Result = nil
-	}
-}
-
-func (x *Resolution) ClearUnverifiable() {
-	if _, ok := x.xxx_hidden_Result.(*resolution_Unverifiable); ok {
-		x.xxx_hidden_Result = nil
-	}
-}
-
-const Resolution_Result_not_set_case case_Resolution_Result = 0
-const Resolution_Ready_case case_Resolution_Result = 1
-const Resolution_CaptureQueued_case case_Resolution_Result = 2
-const Resolution_Unverifiable_case case_Resolution_Result = 3
-
-func (x *Resolution) WhichResult() case_Resolution_Result {
-	if x == nil {
-		return Resolution_Result_not_set_case
-	}
-	switch x.xxx_hidden_Result.(type) {
-	case *resolution_Ready:
-		return Resolution_Ready_case
-	case *resolution_CaptureQueued:
-		return Resolution_CaptureQueued_case
-	case *resolution_Unverifiable:
-		return Resolution_Unverifiable_case
-	default:
-		return Resolution_Result_not_set_case
-	}
+func (x *Resolution) ClearState() {
+	x.xxx_hidden_State = nil
 }
 
 type Resolution_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	// Fields of oneof xxx_hidden_Result:
-	Ready         *Ready
-	CaptureQueued *CaptureQueued
-	Unverifiable  *Unverifiable
-	// -- end of xxx_hidden_Result
+	// A cached layout may coexist with any collection state. The absence of a
+	// snapshot is valid only while collection is in progress; Central must never
+	// expose idle without a current snapshot.
+	Snapshot *Snapshot
+	State    *collection.State
 }
 
 func (b0 Resolution_builder) Build() *Resolution {
 	m0 := &Resolution{}
 	b, x := &b0, m0
 	_, _ = b, x
-	if b.Ready != nil {
-		x.xxx_hidden_Result = &resolution_Ready{b.Ready}
-	}
-	if b.CaptureQueued != nil {
-		x.xxx_hidden_Result = &resolution_CaptureQueued{b.CaptureQueued}
-	}
-	if b.Unverifiable != nil {
-		x.xxx_hidden_Result = &resolution_Unverifiable{b.Unverifiable}
-	}
+	x.xxx_hidden_Snapshot = b.Snapshot
+	x.xxx_hidden_State = b.State
 	return m0
 }
-
-type case_Resolution_Result protoreflect.FieldNumber
-
-func (x case_Resolution_Result) String() string {
-	md := file_cineko_seatmap_seatmap_proto_msgTypes[10].Descriptor()
-	if x == 0 {
-		return "not set"
-	}
-	return protoimpl.X.MessageFieldStringOf(md, protoreflect.FieldNumber(x))
-}
-
-type isResolution_Result interface {
-	isResolution_Result()
-}
-
-type resolution_Ready struct {
-	Ready *Ready `protobuf:"bytes,1,opt,name=ready,oneof"`
-}
-
-type resolution_CaptureQueued struct {
-	CaptureQueued *CaptureQueued `protobuf:"bytes,2,opt,name=capture_queued,json=captureQueued,oneof"`
-}
-
-type resolution_Unverifiable struct {
-	Unverifiable *Unverifiable `protobuf:"bytes,3,opt,name=unverifiable,oneof"`
-}
-
-func (*resolution_Ready) isResolution_Result() {}
-
-func (*resolution_CaptureQueued) isResolution_Result() {}
-
-func (*resolution_Unverifiable) isResolution_Result() {}
 
 var File_cineko_seatmap_seatmap_proto protoreflect.FileDescriptor
 
 const file_cineko_seatmap_seatmap_proto_rawDesc = "" +
 	"\n" +
-	"\x1ccineko/seatmap/seatmap.proto\x12\x0ecineko.seatmap\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xbd\x04\n" +
-	"\x04Seat\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12#\n" +
-	"\rauditorium_id\x18\x02 \x01(\tR\fauditoriumId\x12\x14\n" +
+	"\x1ccineko/seatmap/seatmap.proto\x12\x0ecineko.seatmap\x1a\x1bbuf/validate/validate.proto\x1a\"cineko/collection/collection.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xd5\x04\n" +
+	"\x04Seat\x12\x1a\n" +
+	"\x02id\x18\x01 \x01(\tB\n" +
+	"\xbaH\a\xc8\x01\x01r\x02\x10\x01R\x02id\x12/\n" +
+	"\rauditorium_id\x18\x02 \x01(\tB\n" +
+	"\xbaH\a\xc8\x01\x01r\x02\x10\x01R\fauditoriumId\x12\x14\n" +
 	"\x05label\x18\x03 \x01(\tR\x05label\x12\x10\n" +
 	"\x03row\x18\x04 \x01(\tR\x03row\x12\x16\n" +
 	"\x06number\x18\x05 \x01(\x05R\x06number\x12\f\n" +
@@ -2356,23 +2085,27 @@ const file_cineko_seatmap_seatmap_proto_rawDesc = "" +
 	"\x05min_x\x18\x05 \x01(\x01R\x04minX\x12\x13\n" +
 	"\x05max_x\x18\x06 \x01(\x01R\x04maxX\x12\x13\n" +
 	"\x05min_y\x18\a \x01(\x01R\x04minY\x12\x13\n" +
-	"\x05max_y\x18\b \x01(\x01R\x04maxY\"\x9b\x01\n" +
+	"\x05max_y\x18\b \x01(\x01R\x04maxY\"\xae\x02\n" +
 	"\x06Layout\x12*\n" +
 	"\x05seats\x18\x01 \x03(\v2\x14.cineko.seatmap.SeatR\x05seats\x120\n" +
 	"\x05zones\x18\x02 \x03(\v2\x1a.cineko.seatmap.LayoutZoneR\x05zones\x123\n" +
-	"\x06blocks\x18\x03 \x03(\v2\x1b.cineko.seatmap.LayoutBlockR\x06blocks\"\xe9\x01\n" +
-	"\bSnapshot\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12#\n" +
-	"\rauditorium_id\x18\x02 \x01(\tR\fauditoriumId\x12\x1f\n" +
-	"\vlayout_hash\x18\x03 \x01(\tR\n" +
-	"layoutHash\x12\x1a\n" +
-	"\bcapacity\x18\x04 \x01(\x05R\bcapacity\x12.\n" +
-	"\x06layout\x18\x05 \x01(\v2\x16.cineko.seatmap.LayoutR\x06layout\x12;\n" +
-	"\vobserved_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"observedAt\"4\n" +
+	"\x06blocks\x18\x03 \x03(\v2\x1b.cineko.seatmap.LayoutBlockR\x06blocks:\x90\x01\xbaH\x8c\x01\x1a\x89\x01\n" +
+	"\x16unique_layout_seat_ids\x12\x1elayout seat IDs must be unique\x1aOthis.seats.all(seat, this.seats.filter(other, other.id == seat.id).size() == 1)\"\xb3\x04\n" +
+	"\bSnapshot\x12\x1a\n" +
+	"\x02id\x18\x01 \x01(\tB\n" +
+	"\xbaH\a\xc8\x01\x01r\x02\x10\x01R\x02id\x12/\n" +
+	"\rauditorium_id\x18\x02 \x01(\tB\n" +
+	"\xbaH\a\xc8\x01\x01r\x02\x10\x01R\fauditoriumId\x129\n" +
+	"\vlayout_hash\x18\x03 \x01(\tB\x18\xbaH\x15\xc8\x01\x01r\x102\x0e^[0-9a-f]{64}$R\n" +
+	"layoutHash\x12#\n" +
+	"\bcapacity\x18\x04 \x01(\x05B\a\xbaH\x04\x1a\x02 \x00R\bcapacity\x126\n" +
+	"\x06layout\x18\x05 \x01(\v2\x16.cineko.seatmap.LayoutB\x06\xbaH\x03\xc8\x01\x01R\x06layout\x12C\n" +
+	"\vobserved_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampB\x06\xbaH\x03\xc8\x01\x01R\n" +
+	"observedAt:\xfc\x01\xbaH\xf8\x01\x1a\xf5\x01\n" +
+	" snapshot_capacity_matches_layout\x12<snapshot capacity and seat auditoriums must match the layout\x1a\x92\x01this.layout.seats.size() > 0 && this.capacity == this.layout.seats.size() && this.layout.seats.all(seat, seat.auditorium_id == this.auditorium_id)\"4\n" +
 	"\rAvailableSeat\x12#\n" +
 	"\aseat_id\x18\x01 \x01(\tB\n" +
-	"\xbaH\a\xc8\x01\x01r\x02\x10\x01R\x06seatId\"\xbc\x02\n" +
+	"\xbaH\a\xc8\x01\x01r\x02\x10\x01R\x06seatId\"\xf3\x03\n" +
 	"\x14AvailabilitySnapshot\x12+\n" +
 	"\vshowtime_id\x18\x01 \x01(\tB\n" +
 	"\xbaH\a\xc8\x01\x01r\x02\x10\x01R\n" +
@@ -2383,23 +2116,19 @@ const file_cineko_seatmap_seatmap_proto_rawDesc = "" +
 	"layoutHash\x12F\n" +
 	"\x0favailable_seats\x18\x04 \x03(\v2\x1d.cineko.seatmap.AvailableSeatR\x0eavailableSeats\x12C\n" +
 	"\vobserved_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampB\x06\xbaH\x03\xc8\x01\x01R\n" +
-	"observedAt\"=\n" +
-	"\x05Ready\x124\n" +
-	"\bsnapshot\x18\x01 \x01(\v2\x18.cineko.seatmap.SnapshotR\bsnapshot\"h\n" +
-	"\rCaptureQueued\x12\x17\n" +
-	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12>\n" +
-	"\rnext_check_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\vnextCheckAt\"/\n" +
-	"\fUnverifiable\x12\x1f\n" +
-	"\vreason_code\x18\x01 \x01(\tR\n" +
-	"reasonCode\"\xd8\x01\n" +
+	"observedAt:\xb4\x01\xbaH\xb0\x01\x1a\xad\x01\n" +
+	"\x19unique_available_seat_ids\x12!available seat IDs must be unique\x1amthis.available_seats.all(seat, this.available_seats.filter(other, other.seat_id == seat.seat_id).size() == 1)\"\x8e\x04\n" +
+	"\x13LiveSeatObservation\x128\n" +
+	"\x06layout\x18\x01 \x01(\v2\x18.cineko.seatmap.SnapshotB\x06\xbaH\x03\xc8\x01\x01R\x06layout\x12P\n" +
+	"\favailability\x18\x02 \x01(\v2$.cineko.seatmap.AvailabilitySnapshotB\x06\xbaH\x03\xc8\x01\x01R\favailability:\xea\x02\xbaH\xe6\x02\x1a\xe3\x02\n" +
+	"\"matching_live_observation_identity\x12Ilayout and availability must describe the same auditorium and layout hash\x1a\xf1\x01this.layout.auditorium_id == this.availability.auditorium_id && this.layout.layout_hash == this.availability.layout_hash && this.availability.available_seats.all(available, this.layout.layout.seats.exists(seat, seat.id == available.seat_id))\"\xfb\x01\n" +
 	"\n" +
-	"Resolution\x12-\n" +
-	"\x05ready\x18\x01 \x01(\v2\x15.cineko.seatmap.ReadyH\x00R\x05ready\x12F\n" +
-	"\x0ecapture_queued\x18\x02 \x01(\v2\x1d.cineko.seatmap.CaptureQueuedH\x00R\rcaptureQueued\x12B\n" +
-	"\funverifiable\x18\x03 \x01(\v2\x1c.cineko.seatmap.UnverifiableH\x00R\funverifiableB\x0f\n" +
-	"\x06result\x12\x05\xbaH\x02\b\x01B?Z=github.com/cineko-org/contracts/gen/go/cineko/seatmap;seatmapb\beditionsp\xe9\a"
+	"Resolution\x124\n" +
+	"\bsnapshot\x18\x01 \x01(\v2\x18.cineko.seatmap.SnapshotR\bsnapshot\x126\n" +
+	"\x05state\x18\x02 \x01(\v2\x18.cineko.collection.StateB\x06\xbaH\x03\xc8\x01\x01R\x05state:\x7f\xbaH|\x1az\n" +
+	"\x16idle_requires_snapshot\x123idle seat-map resolution requires a cached snapshot\x1a+!has(this.state.idle) || has(this.snapshot)BBZ@github.com/cineko-org/contracts/v3/gen/go/cineko/seatmap;seatmapb\beditionsp\xe9\a"
 
-var file_cineko_seatmap_seatmap_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_cineko_seatmap_seatmap_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_cineko_seatmap_seatmap_proto_goTypes = []any{
 	(*Seat)(nil),                  // 0: cineko.seatmap.Seat
 	(*LayoutZone)(nil),            // 1: cineko.seatmap.LayoutZone
@@ -2408,30 +2137,28 @@ var file_cineko_seatmap_seatmap_proto_goTypes = []any{
 	(*Snapshot)(nil),              // 4: cineko.seatmap.Snapshot
 	(*AvailableSeat)(nil),         // 5: cineko.seatmap.AvailableSeat
 	(*AvailabilitySnapshot)(nil),  // 6: cineko.seatmap.AvailabilitySnapshot
-	(*Ready)(nil),                 // 7: cineko.seatmap.Ready
-	(*CaptureQueued)(nil),         // 8: cineko.seatmap.CaptureQueued
-	(*Unverifiable)(nil),          // 9: cineko.seatmap.Unverifiable
-	(*Resolution)(nil),            // 10: cineko.seatmap.Resolution
-	(*timestamppb.Timestamp)(nil), // 11: google.protobuf.Timestamp
+	(*LiveSeatObservation)(nil),   // 7: cineko.seatmap.LiveSeatObservation
+	(*Resolution)(nil),            // 8: cineko.seatmap.Resolution
+	(*timestamppb.Timestamp)(nil), // 9: google.protobuf.Timestamp
+	(*collection.State)(nil),      // 10: cineko.collection.State
 }
 var file_cineko_seatmap_seatmap_proto_depIdxs = []int32{
 	0,  // 0: cineko.seatmap.Layout.seats:type_name -> cineko.seatmap.Seat
 	1,  // 1: cineko.seatmap.Layout.zones:type_name -> cineko.seatmap.LayoutZone
 	2,  // 2: cineko.seatmap.Layout.blocks:type_name -> cineko.seatmap.LayoutBlock
 	3,  // 3: cineko.seatmap.Snapshot.layout:type_name -> cineko.seatmap.Layout
-	11, // 4: cineko.seatmap.Snapshot.observed_at:type_name -> google.protobuf.Timestamp
+	9,  // 4: cineko.seatmap.Snapshot.observed_at:type_name -> google.protobuf.Timestamp
 	5,  // 5: cineko.seatmap.AvailabilitySnapshot.available_seats:type_name -> cineko.seatmap.AvailableSeat
-	11, // 6: cineko.seatmap.AvailabilitySnapshot.observed_at:type_name -> google.protobuf.Timestamp
-	4,  // 7: cineko.seatmap.Ready.snapshot:type_name -> cineko.seatmap.Snapshot
-	11, // 8: cineko.seatmap.CaptureQueued.next_check_at:type_name -> google.protobuf.Timestamp
-	7,  // 9: cineko.seatmap.Resolution.ready:type_name -> cineko.seatmap.Ready
-	8,  // 10: cineko.seatmap.Resolution.capture_queued:type_name -> cineko.seatmap.CaptureQueued
-	9,  // 11: cineko.seatmap.Resolution.unverifiable:type_name -> cineko.seatmap.Unverifiable
-	12, // [12:12] is the sub-list for method output_type
-	12, // [12:12] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	9,  // 6: cineko.seatmap.AvailabilitySnapshot.observed_at:type_name -> google.protobuf.Timestamp
+	4,  // 7: cineko.seatmap.LiveSeatObservation.layout:type_name -> cineko.seatmap.Snapshot
+	6,  // 8: cineko.seatmap.LiveSeatObservation.availability:type_name -> cineko.seatmap.AvailabilitySnapshot
+	4,  // 9: cineko.seatmap.Resolution.snapshot:type_name -> cineko.seatmap.Snapshot
+	10, // 10: cineko.seatmap.Resolution.state:type_name -> cineko.collection.State
+	11, // [11:11] is the sub-list for method output_type
+	11, // [11:11] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_cineko_seatmap_seatmap_proto_init() }
@@ -2439,18 +2166,13 @@ func file_cineko_seatmap_seatmap_proto_init() {
 	if File_cineko_seatmap_seatmap_proto != nil {
 		return
 	}
-	file_cineko_seatmap_seatmap_proto_msgTypes[10].OneofWrappers = []any{
-		(*resolution_Ready)(nil),
-		(*resolution_CaptureQueued)(nil),
-		(*resolution_Unverifiable)(nil),
-	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_cineko_seatmap_seatmap_proto_rawDesc), len(file_cineko_seatmap_seatmap_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   11,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

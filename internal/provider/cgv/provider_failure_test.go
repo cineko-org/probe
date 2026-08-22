@@ -9,17 +9,25 @@ import (
 
 func TestProviderHTTPErrorClassification(t *testing.T) {
 	t.Parallel()
-	if err := providerHTTPError(401); !errors.Is(err, ErrAuthenticationRequired) {
-		t.Fatalf("401 error = %v", err)
-	}
-	if err := providerHTTPError(403); !errors.Is(err, ErrProviderAccessBlocked) {
-		t.Fatalf("403 error = %v", err)
-	}
-	if err := providerHTTPError(429); !errors.Is(err, ErrProviderThrottled) {
-		t.Fatalf("429 error = %v", err)
-	}
-	if err := providerHTTPError(500); errors.Is(err, ErrProviderAccessBlocked) || errors.Is(err, ErrProviderThrottled) {
-		t.Fatalf("500 error = %v", err)
+	for _, test := range []struct {
+		status int
+		want   error
+	}{
+		{status: 301, want: ErrUIContractChanged},
+		{status: 400, want: ErrProviderInvalidResult},
+		{status: 401, want: ErrAuthenticationRequired},
+		{status: 403, want: ErrProviderAccessBlocked},
+		{status: 404, want: ErrUIContractChanged},
+		{status: 408, want: context.DeadlineExceeded},
+		{status: 422, want: ErrProviderInvalidResult},
+		{status: 429, want: ErrProviderThrottled},
+		{status: 500, want: ErrProviderServerError},
+		{status: 504, want: context.DeadlineExceeded},
+		{status: 0, want: ErrProviderTransport},
+	} {
+		if err := providerHTTPError(test.status); !errors.Is(err, test.want) {
+			t.Errorf("HTTP %d error = %v, want %v", test.status, err, test.want)
+		}
 	}
 }
 

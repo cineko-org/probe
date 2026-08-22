@@ -1,14 +1,15 @@
 package cgv
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
-	catalogpb "github.com/cineko-org/contracts/gen/go/cineko/catalog"
-	commonpb "github.com/cineko-org/contracts/gen/go/cineko/common"
-	observationpb "github.com/cineko-org/contracts/gen/go/cineko/observation"
+	catalogpb "github.com/cineko-org/contracts/v3/gen/go/cineko/catalog"
+	commonpb "github.com/cineko-org/contracts/v3/gen/go/cineko/common"
+	observationpb "github.com/cineko-org/contracts/v3/gen/go/cineko/observation"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -24,31 +25,30 @@ func TestSeatMapTaskRequiresCanonicalExactShowtime(t *testing.T) {
 	theater := &catalogpb.Theater{}
 	theater.SetId(theaterID)
 	theater.SetProviderId(ProviderCGV)
-	theater.SetSourceKey(theaterSource)
+	theater.SetIdentity(NewTheaterIdentity(theaterSource))
 	theater.SetRegion("서울")
 	theater.SetName("용산아이파크몰")
 	auditorium := &catalogpb.Auditorium{}
 	auditorium.SetId(auditoriumID)
 	auditorium.SetTheaterId(theaterID)
-	auditorium.SetSourceKey(auditoriumSource)
+	auditorium.SetIdentity(NewAuditoriumIdentity(theaterSource, "0007"))
 	auditorium.SetName("IMAX관")
 	movie := &catalogpb.Movie{}
 	movie.SetId(CatalogID(ProviderCGV, "movie", "00001234"))
 	movie.SetProviderId(ProviderCGV)
-	movie.SetSourceKey("00001234")
+	movie.SetIdentity(NewMovieIdentity("00001234"))
 	movie.SetTitle("Example Movie")
 	showtime := &catalogpb.Showtime{}
 	showtime.SetId(showtimeID)
 	showtime.SetProviderId(ProviderCGV)
-	showtime.SetSourceKey(showtimeSource)
 	showtime.SetTheaterId(theaterID)
 	showtime.SetAuditorium(auditorium)
 	showtime.SetMovie(movie)
-	scheduleDate := &commonpb.LocalDate{}
-	scheduleDate.SetYear(2026)
-	scheduleDate.SetMonth(8)
-	scheduleDate.SetDay(21)
-	showtime.SetScheduleDate(scheduleDate)
+	showtimeIdentity, err := NewShowtimeIdentity(theaterSource, "2026-08-21", "0007", "0003")
+	if err != nil {
+		t.Fatal(err)
+	}
+	showtime.SetIdentity(showtimeIdentity)
 	showtime.SetStartsAt(timestamppb.New(startsAt))
 	showtime.SetEndsAt(timestamppb.New(startsAt.Add(2 * time.Hour)))
 	seatTask := &observationpb.SeatMapTask{}
@@ -71,12 +71,32 @@ func TestSeatMapTaskRequiresCanonicalExactShowtime(t *testing.T) {
 	if _, err := exactSeatMapShowtime([]scheduleEntry{entry}, task.GetSeatMap().GetShowtime()); err != nil {
 		t.Fatalf("exact provider showtime rejected: %v", err)
 	}
-	task.GetSeatMap().GetShowtime().GetScheduleDate().SetYear(0)
+	wrongAuditoriumIdentity, err := NewShowtimeIdentity(theaterSource, "2026-08-21", "0008", "0003")
+	if err != nil {
+		t.Fatal(err)
+	}
+	showtime.SetIdentity(wrongAuditoriumIdentity)
+	showtime.SetId(CatalogID(ProviderCGV, "showtime", theaterSource+"/2026-08-21/0008/0003"))
+	if err := validateSeatMapTask(task); !errors.Is(err, ErrIdentityMismatch) {
+		t.Fatalf("showtime/auditorium relation error = %v", err)
+	}
+	wrongTheaterIdentity, err := NewShowtimeIdentity("0099", "2026-08-21", "0007", "0003")
+	if err != nil {
+		t.Fatal(err)
+	}
+	showtime.SetIdentity(wrongTheaterIdentity)
+	showtime.SetId(CatalogID(ProviderCGV, "showtime", "0099/2026-08-21/0007/0003"))
+	if err := validateSeatMapTask(task); !errors.Is(err, ErrIdentityMismatch) {
+		t.Fatalf("showtime/theater relation error = %v", err)
+	}
+	showtime.SetIdentity(showtimeIdentity)
+	showtime.SetId(showtimeID)
+	task.GetSeatMap().GetShowtime().GetIdentity().GetCgv().GetScheduleDate().SetYear(0)
 	if err := validateSeatMapTask(task); err == nil {
 		t.Fatal("year-zero exact showtime accepted")
 	}
-	task.GetSeatMap().GetShowtime().GetScheduleDate().SetYear(2026)
-	task.GetSeatMap().GetShowtime().SetSourceKey("")
+	task.GetSeatMap().GetShowtime().GetIdentity().GetCgv().GetScheduleDate().SetYear(2026)
+	task.GetSeatMap().GetShowtime().GetIdentity().GetCgv().SetSequence("")
 	if err := validateSeatMapTask(task); err == nil {
 		t.Fatal("noncanonical showtime accepted")
 	}
@@ -91,13 +111,13 @@ func TestSeatMapTaskAcceptsExploratoryDateWindow(t *testing.T) {
 	theater := &catalogpb.Theater{}
 	theater.SetId(theaterID)
 	theater.SetProviderId(ProviderCGV)
-	theater.SetSourceKey(theaterSource)
+	theater.SetIdentity(NewTheaterIdentity(theaterSource))
 	theater.SetRegion("서울")
 	theater.SetName("용산아이파크몰")
 	auditorium := &catalogpb.Auditorium{}
 	auditorium.SetId(auditoriumID)
 	auditorium.SetTheaterId(theaterID)
-	auditorium.SetSourceKey(auditoriumSource)
+	auditorium.SetIdentity(NewAuditoriumIdentity(theaterSource, "0007"))
 	auditorium.SetName("IMAX관")
 	targetDate := &commonpb.LocalDate{}
 	targetDate.SetYear(2026)

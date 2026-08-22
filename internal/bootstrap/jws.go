@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	probepb "github.com/cineko-org/contracts/gen/go/cineko/probe"
+	probepb "github.com/cineko-org/contracts/v3/gen/go/cineko/probe"
 )
 
 const (

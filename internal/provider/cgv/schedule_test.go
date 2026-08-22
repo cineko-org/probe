@@ -1,6 +1,7 @@
 package cgv
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +34,17 @@ func TestParseScheduleResponseUsesProviderIdentity(t *testing.T) {
 		entry.Showtime.MovieID != CatalogID(ProviderCGV, "movie", entry.Showtime.MovieSourceKey) ||
 		entry.Showtime.AuditoriumID != CatalogID(ProviderCGV, "auditorium", entry.Showtime.AuditoriumSourceKey) {
 		t.Fatalf("canonical identities = %+v", entry.Showtime)
+	}
+}
+
+func TestScheduleEntryRejectsTheaterRelationshipMismatch(t *testing.T) {
+	t.Parallel()
+	row := providerScheduleRow{
+		SiteNo: "0001", MovieNo: "00001234", AuditoriumNo: "0007", Date: "2026-08-12",
+		Sequence: "0003", AuditoriumName: "IMAX관", StartClock: "2530", EndClock: "2832",
+	}
+	if _, err := scheduleEntryFromProviderRow(row, testScheduleTheater()); !errors.Is(err, ErrIdentityMismatch) {
+		t.Fatalf("theater relationship error = %v", err)
 	}
 }
 
@@ -180,12 +192,14 @@ func TestParseProviderClockRange(t *testing.T) {
 
 func TestScheduleResponseURLIsExact(t *testing.T) {
 	t.Parallel()
+	if !scheduleResponseURL("https://cgv.co.kr/api/v1/booking/searchMovScnInfo?siteNo=0056") {
+		t.Fatal("current schedule response URL rejected")
+	}
 	for _, rawURL := range []string{
-		"https://cgv.co.kr/api/v1/booking/searchMovScnInfo?siteNo=0056",
 		"https://cgv.co.kr/cnm/atkt/searchMovScnInfo?siteNo=0056",
 	} {
-		if !scheduleResponseURL(rawURL) {
-			t.Fatalf("known response URL rejected: %q", rawURL)
+		if scheduleResponseURL(rawURL) {
+			t.Fatalf("legacy response URL accepted: %q", rawURL)
 		}
 	}
 	for _, rawURL := range []string{

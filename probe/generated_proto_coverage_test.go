@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	observationpb "github.com/cineko-org/contracts/gen/go/cineko/observation"
-	probepb "github.com/cineko-org/contracts/gen/go/cineko/probe"
+	observationpb "github.com/cineko-org/contracts/v3/gen/go/cineko/observation"
+	probepb "github.com/cineko-org/contracts/v3/gen/go/cineko/probe"
 	"github.com/cineko-org/probe/v2/internal/provider/cgv"
 )
 
@@ -71,6 +71,8 @@ func TestGeneratedProtoCGVExecutorBoundaries(t *testing.T) {
 	providerDateFormat := canonicalTestShowtime(cgv.ScheduleShowtime{
 		Date: "20260820", StartsAt: "10:00", EndsAt: "11:00", AvailableSeats: 1, Capacity: 2,
 	})
+	providerDateFormat.SourceKey = "0056/20260820/0007/0003"
+	providerDateFormat.ID = cgv.CatalogID(cgv.ProviderCGV, "showtime", providerDateFormat.SourceKey)
 	if _, err := executor.convertCapture(cgv.ScheduleCapture{
 		TargetDate: "2026-08-20", Showtimes: []cgv.ScheduleShowtime{providerDateFormat},
 	}, time.UTC); err == nil {

@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	catalogpb "github.com/cineko-org/contracts/gen/go/cineko/catalog"
-	commonpb "github.com/cineko-org/contracts/gen/go/cineko/common"
-	observationpb "github.com/cineko-org/contracts/gen/go/cineko/observation"
+	catalogpb "github.com/cineko-org/contracts/v3/gen/go/cineko/catalog"
+	commonpb "github.com/cineko-org/contracts/v3/gen/go/cineko/common"
+	observationpb "github.com/cineko-org/contracts/v3/gen/go/cineko/observation"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -58,27 +58,30 @@ func TestSeatAvailabilityTaskRequiresOneExactShowtime(t *testing.T) {
 	theater := &catalogpb.Theater{}
 	theater.SetId(theaterID)
 	theater.SetProviderId(ProviderCGV)
-	theater.SetSourceKey("0056")
+	theater.SetIdentity(NewTheaterIdentity("0056"))
 	theater.SetRegion("서울")
 	theater.SetName("용산아이파크몰")
 	auditorium := &catalogpb.Auditorium{}
 	auditorium.SetId(auditoriumID)
 	auditorium.SetTheaterId(theaterID)
-	auditorium.SetSourceKey("0056/0007")
+	auditorium.SetIdentity(NewAuditoriumIdentity("0056", "0007"))
 	auditorium.SetName("IMAX관")
 	movie := &catalogpb.Movie{}
 	movie.SetId(CatalogID(ProviderCGV, "movie", "00001234"))
 	movie.SetProviderId(ProviderCGV)
-	movie.SetSourceKey("00001234")
+	movie.SetIdentity(NewMovieIdentity("00001234"))
 	movie.SetTitle("Example Movie")
 	showtime := &catalogpb.Showtime{}
 	showtime.SetId(CatalogID(ProviderCGV, "showtime", "0056/2026-08-21/0007/0003"))
 	showtime.SetProviderId(ProviderCGV)
-	showtime.SetSourceKey("0056/2026-08-21/0007/0003")
 	showtime.SetTheaterId(theaterID)
 	showtime.SetMovie(movie)
 	showtime.SetAuditorium(auditorium)
-	showtime.SetScheduleDate(localDateForAvailability(2026, 8, 21))
+	showtimeIdentity, err := NewShowtimeIdentity("0056", "2026-08-21", "0007", "0003")
+	if err != nil {
+		t.Fatal(err)
+	}
+	showtime.SetIdentity(showtimeIdentity)
 	startsAt := time.Date(2026, 8, 21, 20, 0, 0, 0, time.FixedZone("KST", 9*60*60))
 	showtime.SetStartsAt(timestamppb.New(startsAt))
 	showtime.SetEndsAt(timestamppb.New(startsAt.Add(2 * time.Hour)))
@@ -100,14 +103,6 @@ func TestSeatAvailabilityTaskRequiresOneExactShowtime(t *testing.T) {
 	if err := validateSeatAvailabilityTask(assignment); err == nil {
 		t.Fatal("seat-availability task without showtime accepted")
 	}
-}
-
-func localDateForAvailability(year, month, day int32) *commonpb.LocalDate {
-	date := &commonpb.LocalDate{}
-	date.SetYear(year)
-	date.SetMonth(month)
-	date.SetDay(day)
-	return date
 }
 
 const seatAvailabilityFixture = `{

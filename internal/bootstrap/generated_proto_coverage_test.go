@@ -3,8 +3,8 @@ package bootstrap
 import (
 	"testing"
 
-	observationpb "github.com/cineko-org/contracts/gen/go/cineko/observation"
-	probepb "github.com/cineko-org/contracts/gen/go/cineko/probe"
+	observationpb "github.com/cineko-org/contracts/v3/gen/go/cineko/observation"
+	probepb "github.com/cineko-org/contracts/v3/gen/go/cineko/probe"
 )
 
 func TestGeneratedProtoCapabilityBoundaries(t *testing.T) {

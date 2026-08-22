@@ -14,7 +14,6 @@ const (
 	// CGV exposes this response from the booking page. Keep the paths exact so
 	// a changed page cannot silently turn a display scrape into an identity.
 	scheduleResponsePath         = "/api/v1/booking/searchMovScnInfo"
-	legacyScheduleResponsePath   = "/cnm/atkt/searchMovScnInfo"
 	theaterCatalogResponsePath   = "/api/v1/content/site/searchAllRegionAndSite"
 	seatMapResponsePath          = "/api/v1/booking/searchIfSeatData"
 	maxScheduleResponseBytes     = 8 << 20
@@ -200,7 +199,7 @@ func optionalInteger(raw map[string]json.RawMessage, field string) (int, error) 
 
 func scheduleResponseURL(rawURL string) bool {
 	path, ok := providerResponsePath(rawURL)
-	return ok && (path == scheduleResponsePath || path == legacyScheduleResponsePath)
+	return ok && path == scheduleResponsePath
 }
 
 func providerResponsePath(rawURL string) (string, bool) {
@@ -213,7 +212,7 @@ func providerResponsePath(rawURL string) (string, bool) {
 		return "", false
 	}
 	switch parsed.Path {
-	case scheduleResponsePath, legacyScheduleResponsePath, theaterCatalogResponsePath, seatMapResponsePath:
+	case scheduleResponsePath, theaterCatalogResponsePath, seatMapResponsePath:
 		return parsed.Path, true
 	default:
 		return "", false

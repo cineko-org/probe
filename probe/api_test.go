@@ -10,10 +10,11 @@ import (
 	"testing"
 	"time"
 
-	catalogpb "github.com/cineko-org/contracts/gen/go/cineko/catalog"
-	commonpb "github.com/cineko-org/contracts/gen/go/cineko/common"
-	observationpb "github.com/cineko-org/contracts/gen/go/cineko/observation"
-	probepb "github.com/cineko-org/contracts/gen/go/cineko/probe"
+	catalogpb "github.com/cineko-org/contracts/v3/gen/go/cineko/catalog"
+	commonpb "github.com/cineko-org/contracts/v3/gen/go/cineko/common"
+	observationpb "github.com/cineko-org/contracts/v3/gen/go/cineko/observation"
+	probepb "github.com/cineko-org/contracts/v3/gen/go/cineko/probe"
+	"github.com/cineko-org/probe/v2/internal/provider/cgv"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -71,7 +72,7 @@ func TestHTTPAPIProbeLifecycleContract(t *testing.T) {
 			receipt := &observationpb.ResultReceipt{}
 			receipt.SetAssignmentId("assignment_01")
 			receipt.SetRunId("run_01")
-			receipt.SetContentHash("hash")
+			receipt.SetContentHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 			receipt.SetAccepted(&observationpb.Accepted{})
 			writeProtoJSON(t, writer, receipt)
 		case "/v1/probes/probe_01/disconnect":
@@ -118,7 +119,9 @@ func TestHTTPAPIProbeLifecycleContract(t *testing.T) {
 	result.SetStartedAt(timestamppb.Now())
 	result.SetFinishedAt(timestamppb.Now())
 	completed := &observationpb.Completed{}
-	completed.SetCaptures([]*observationpb.Capture{})
+	schedule := &observationpb.ScheduleCaptures{}
+	schedule.SetCaptures([]*observationpb.Capture{{}})
+	completed.SetSchedule(schedule)
 	result.SetCompleted(completed)
 	receipt, err := api.CommitResult(context.Background(), session, assignment, result)
 	if err != nil || receipt.GetRunId() != "run_01" {
@@ -265,9 +268,9 @@ func writeAPIError(t *testing.T, writer http.ResponseWriter, status int, code, m
 
 func scheduleTaskForTest() *observationpb.AssignmentTask {
 	theater := &catalogpb.Theater{}
-	theater.SetId("theater_01")
+	theater.SetId(cgv.CatalogID(cgv.ProviderCGV, "theater", "0056"))
 	theater.SetProviderId("cgv")
-	theater.SetSourceKey("서울/용산아이파크몰")
+	theater.SetIdentity(cgv.NewTheaterIdentity("0056"))
 	theater.SetRegion("서울")
 	theater.SetName("용산아이파크몰")
 	date := &commonpb.LocalDate{}

@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	seatmappb "github.com/cineko-org/contracts/gen/go/cineko/seatmap"
+	seatmappb "github.com/cineko-org/contracts/v3/gen/go/cineko/seatmap"
 )
 
 type seatDataEnvelope struct {

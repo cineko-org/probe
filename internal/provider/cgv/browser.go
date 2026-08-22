@@ -28,6 +28,12 @@ var (
 	ErrCaptchaRequired        = errors.New("manual CAPTCHA entry is required")
 	ErrProviderAccessBlocked  = errors.New("CGV blocked the current network identity")
 	ErrProviderThrottled      = errors.New("CGV temporarily rate limited requests")
+	ErrProviderServerError    = errors.New("CGV provider returned a server error")
+	ErrProviderTransport      = errors.New("CGV provider transport failed")
+	ErrProviderInvalidResult  = errors.New("CGV provider rejected or returned an invalid result")
+	ErrBrowserStartFailed     = errors.New("CGV browser could not start")
+	ErrIdentityMismatch       = errors.New("CGV provider identity does not match the assignment")
+	ErrNoBookableShowtime     = errors.New("CGV has no bookable showtime for the assignment")
 	ErrTargetDateUnavailable  = errors.New("CGV target date is not selectable")
 )
 
@@ -726,7 +732,10 @@ func (adapter *Adapter) navigate(url string) error {
 		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
 	})
 	if err != nil {
-		return err
+		if contextErr := adapter.ctx.Err(); contextErr != nil {
+			return contextErr
+		}
+		return fmt.Errorf("%w: navigate provider page: %w", ErrProviderTransport, err)
 	}
 	if response != nil && (response.Status() < 200 || response.Status() > 399) {
 		return adapter.handleProviderFailure(providerHTTPError(response.Status()))
