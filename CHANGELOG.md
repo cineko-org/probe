@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.3](https://github.com/cineko-org/probe/compare/v2.7.2...v2.7.3) (2026-08-22)
+
+
+### Bug Fixes
+
+* preserve active schedule response ([#29](https://github.com/cineko-org/probe/issues/29)) ([7e12668](https://github.com/cineko-org/probe/commit/7e126680b30f1a0b130dd052700267fb6cb13855))
+
 ## [2.7.2](https://github.com/cineko-org/probe/compare/v2.7.1...v2.7.2) (2026-08-22)
 
 
