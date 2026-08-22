@@ -397,7 +397,13 @@ func seatMapAssignmentTask() *observationpb.AssignmentTask {
 	showtime.SetSourceKey("0056/2026-08-12/0007/0003")
 	showtime.SetTheaterId(theater.GetId())
 	showtime.SetAuditorium(auditorium)
-	showtime.SetMovie(&catalogpb.Movie{})
+	movie := &catalogpb.Movie{}
+	movie.SetId(cgv.CatalogID(cgv.ProviderCGV, "movie", "00001234"))
+	movie.SetProviderId(cgv.ProviderCGV)
+	movie.SetSourceKey("00001234")
+	movie.SetTitle("Example Movie")
+	showtime.SetMovie(movie)
+	showtime.SetScheduleDate(testLocalDate(2026, 8, 12))
 	showtime.SetStartsAt(timestamppb.New(time.Date(2026, 8, 12, 19, 0, 0, 0, time.UTC)))
 	showtime.SetEndsAt(timestamppb.New(time.Date(2026, 8, 12, 21, 0, 0, 0, time.UTC)))
 	seatTask := &observationpb.SeatMapTask{}

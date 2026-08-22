@@ -41,8 +41,9 @@ func TestLoadContainerConfig(t *testing.T) {
 	if config.mode != "container" || config.centralURL != "https://central.cineko.invalid" || config.dataDir != directory ||
 		config.registration.GetInstallationId() != "install_container_01" ||
 		config.registration.GetKind().GetContainer() == nil || config.registration.GetNetworkHint() != "home-seoul" ||
-		len(config.registration.GetCapabilities()) != 3 || config.registration.GetCapabilities()[0].GetCatalogCapture() == nil ||
+		len(config.registration.GetCapabilities()) != 4 || config.registration.GetCapabilities()[0].GetCatalogCapture() == nil ||
 		config.registration.GetCapabilities()[1].GetScheduleCapture() == nil || config.registration.GetCapabilities()[2].GetSeatMapCapture() == nil ||
+		config.registration.GetCapabilities()[3].GetSeatAvailabilityCapture() == nil ||
 		config.registration.GetRuntime().GetPlatform() != runtime.GOOS || config.registration.GetRuntime().GetArchitecture() != runtime.GOARCH {
 		t.Fatalf("container config = %+v", config)
 	}

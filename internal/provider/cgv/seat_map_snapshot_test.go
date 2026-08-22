@@ -1,6 +1,7 @@
 package cgv
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +34,9 @@ func TestSeatMapTaskRequiresCanonicalExactShowtime(t *testing.T) {
 	auditorium.SetName("IMAX관")
 	movie := &catalogpb.Movie{}
 	movie.SetId(CatalogID(ProviderCGV, "movie", "00001234"))
+	movie.SetProviderId(ProviderCGV)
+	movie.SetSourceKey("00001234")
+	movie.SetTitle("Example Movie")
 	showtime := &catalogpb.Showtime{}
 	showtime.SetId(showtimeID)
 	showtime.SetProviderId(ProviderCGV)
@@ -40,6 +44,11 @@ func TestSeatMapTaskRequiresCanonicalExactShowtime(t *testing.T) {
 	showtime.SetTheaterId(theaterID)
 	showtime.SetAuditorium(auditorium)
 	showtime.SetMovie(movie)
+	scheduleDate := &commonpb.LocalDate{}
+	scheduleDate.SetYear(2026)
+	scheduleDate.SetMonth(8)
+	scheduleDate.SetDay(21)
+	showtime.SetScheduleDate(scheduleDate)
 	showtime.SetStartsAt(timestamppb.New(startsAt))
 	showtime.SetEndsAt(timestamppb.New(startsAt.Add(2 * time.Hour)))
 	seatTask := &observationpb.SeatMapTask{}
@@ -56,11 +65,17 @@ func TestSeatMapTaskRequiresCanonicalExactShowtime(t *testing.T) {
 		t.Fatalf("canonical task rejected: %v", err)
 	}
 	entry := scheduleEntry{Showtime: ScheduleShowtime{
-		SourceKey: showtimeSource, MovieID: task.GetSeatMap().GetShowtime().GetMovie().GetId(), AuditoriumID: auditoriumID,
+		ID: showtimeID, ProviderID: ProviderCGV, SourceKey: showtimeSource, TheaterID: theaterID,
+		MovieID: task.GetSeatMap().GetShowtime().GetMovie().GetId(), AuditoriumID: auditoriumID,
 	}}
 	if _, err := exactSeatMapShowtime([]scheduleEntry{entry}, task.GetSeatMap().GetShowtime()); err != nil {
 		t.Fatalf("exact provider showtime rejected: %v", err)
 	}
+	task.GetSeatMap().GetShowtime().GetScheduleDate().SetYear(0)
+	if err := validateSeatMapTask(task); err == nil {
+		t.Fatal("year-zero exact showtime accepted")
+	}
+	task.GetSeatMap().GetShowtime().GetScheduleDate().SetYear(2026)
 	task.GetSeatMap().GetShowtime().SetSourceKey("")
 	if err := validateSeatMapTask(task); err == nil {
 		t.Fatal("noncanonical showtime accepted")
@@ -133,6 +148,18 @@ func TestParseSeatMapLayoutPreservesStaticSemantics(t *testing.T) {
 	}
 	if seat.GetX() <= 0.40 || seat.GetX() >= 0.45 || seat.GetY() <= 0 || seat.GetY() >= 0.1 {
 		t.Fatalf("normalized position = %.4f,%.4f", seat.GetX(), seat.GetY())
+	}
+	if !reflect.DeepEqual(seat.GetFeatures(), []string{
+		"removable", "right-aisle", "sale-form:이동식", "wheelchair-area", "zone:Light존",
+	}) {
+		t.Fatalf("canonical features = %v", seat.GetFeatures())
+	}
+	hash, err := layoutHash(layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hash != "c64db650f1c11a6de3988acbdd5a92b1cbe01115835073c9c0bc080c2b6734f8" {
+		t.Fatalf("canonical fixture layout hash = %s", hash)
 	}
 }
 

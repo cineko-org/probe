@@ -98,6 +98,11 @@ func TestGeneratedProtoRuntimeBoundaries(t *testing.T) {
 	if capabilityKey(catalogCapability) != "cgv.catalog.capture" {
 		t.Fatal("catalog capability key was not canonical")
 	}
+	availabilityCapability := &observationpb.Capability{}
+	availabilityCapability.SetSeatAvailabilityCapture(&observationpb.SeatAvailabilityCapture{})
+	if capabilityKey(availabilityCapability) != "cgv.seat-availability.capture" {
+		t.Fatal("seat-availability capability key was not canonical")
+	}
 	if capabilityKey(&observationpb.Capability{}) != "" {
 		t.Fatal("empty capability key was not empty")
 	}

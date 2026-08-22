@@ -13,10 +13,12 @@ import (
 	"sync"
 	"time"
 
+	"buf.build/go/protovalidate"
 	catalogpb "github.com/cineko-org/contracts/gen/go/cineko/catalog"
 	observationpb "github.com/cineko-org/contracts/gen/go/cineko/observation"
 	probepb "github.com/cineko-org/contracts/gen/go/cineko/probe"
 	seatmappb "github.com/cineko-org/contracts/gen/go/cineko/seatmap"
+	"github.com/cineko-org/probe/v2/internal/provider/cgv"
 	"github.com/cineko-org/probe/v2/internal/telemetry"
 
 	"golang.org/x/mod/semver"
@@ -49,10 +51,15 @@ type SeatMapExecutor interface {
 	CaptureSeatMap(context.Context, *observationpb.AssignmentTask) (*seatmappb.Snapshot, error)
 }
 
+type SeatAvailabilityExecutor interface {
+	CaptureSeatAvailability(context.Context, *observationpb.AssignmentTask) (*seatmappb.AvailabilitySnapshot, error)
+}
+
 type executionOutput struct {
-	captures []*observationpb.Capture
-	catalog  *catalogpb.CatalogSnapshot
-	seatMap  *seatmappb.Snapshot
+	captures         []*observationpb.Capture
+	catalog          *catalogpb.CatalogSnapshot
+	seatMap          *seatmappb.Snapshot
+	seatAvailability *seatmappb.AvailabilitySnapshot
 }
 
 type captureResult struct {
@@ -546,6 +553,16 @@ func (runtime *Runtime) captureAssignment(ctx context.Context, task *observation
 		}
 		seatMap, err := executor.CaptureSeatMap(ctx, task)
 		return captureResult{output: executionOutput{seatMap: seatMap}, err: err}
+	case task.GetSeatAvailability() != nil:
+		executor, supported := runtime.executor.(SeatAvailabilityExecutor)
+		if !supported {
+			return captureResult{err: errors.New("probe executor does not support seat-availability capture")}
+		}
+		availability, err := executor.CaptureSeatAvailability(ctx, task)
+		if err == nil {
+			err = validateSeatAvailabilityCapture(task, availability)
+		}
+		return captureResult{output: executionOutput{seatAvailability: availability}, err: err}
 	default:
 		captures, err := runtime.executor.Capture(ctx, task)
 		return captureResult{output: executionOutput{captures: captures}, err: err}
@@ -566,10 +583,14 @@ func (runtime *Runtime) assignmentResult(
 	result.SetRunId(runID)
 	result.SetStartedAt(timestamppb.New(startedAt))
 	result.SetFinishedAt(timestamppb.New(finishedAt))
+	if captureErr == nil {
+		captureErr = validateExecutionOutput(output)
+	}
 	if captureErr != nil {
 		failed := &observationpb.Failed{}
-		failed.SetReasonCode("capture_failed")
-		failed.SetRetryable(false)
+		reasonCode, retryable := captureFailure(captureErr)
+		failed.SetReasonCode(reasonCode)
+		failed.SetRetryable(retryable)
 		result.SetFailed(failed)
 		return result, nil //nolint:nilerr // capture failures are represented in the generated result oneof
 	}
@@ -577,8 +598,77 @@ func (runtime *Runtime) assignmentResult(
 	completed.SetCaptures(output.captures)
 	completed.SetCatalog(output.catalog)
 	completed.SetSeatMap(output.seatMap)
+	completed.SetSeatAvailability(output.seatAvailability)
 	result.SetCompleted(completed)
 	return result, nil
+}
+
+var errInvalidExecutionOutput = errors.New("probe produced an invalid assignment result")
+
+func validateExecutionOutput(output executionOutput) error {
+	if output.seatAvailability == nil {
+		return nil
+	}
+	if err := protovalidate.Validate(output.seatAvailability); err != nil {
+		return fmt.Errorf("%w: %v", errInvalidExecutionOutput, err)
+	}
+	return nil
+}
+
+func validateSeatAvailabilityCapture(
+	task *observationpb.AssignmentTask,
+	availability *seatmappb.AvailabilitySnapshot,
+) error {
+	if availability == nil {
+		return fmt.Errorf("%w: seat availability is missing", errInvalidExecutionOutput)
+	}
+	if err := protovalidate.Validate(availability); err != nil {
+		return fmt.Errorf("%w: %v", errInvalidExecutionOutput, err)
+	}
+	if task == nil || task.GetSeatAvailability() == nil || task.GetSeatAvailability().GetShowtime() == nil || task.GetSeatAvailability().GetAuditorium() == nil {
+		return fmt.Errorf("%w: assignment target is missing", errInvalidExecutionOutput)
+	}
+	seatTask := task.GetSeatAvailability()
+	if availability.GetShowtimeId() != seatTask.GetShowtime().GetId() ||
+		availability.GetAuditoriumId() != seatTask.GetAuditorium().GetId() {
+		return fmt.Errorf("%w: availability identity does not match assignment", errInvalidExecutionOutput)
+	}
+	previous := ""
+	seen := make(map[string]struct{}, len(availability.GetAvailableSeats()))
+	for _, seat := range availability.GetAvailableSeats() {
+		seatID := seat.GetSeatId()
+		if _, duplicate := seen[seatID]; duplicate || (previous != "" && seatID < previous) {
+			return fmt.Errorf("%w: available seat IDs are not unique and sorted", errInvalidExecutionOutput)
+		}
+		seen[seatID] = struct{}{}
+		previous = seatID
+	}
+	return nil
+}
+
+func captureFailure(err error) (string, bool) {
+	switch {
+	case errors.Is(err, errInvalidExecutionOutput):
+		return "invalid_result", false
+	case errors.Is(err, cgv.ErrProviderAccessBlocked):
+		return "provider_access_blocked", true
+	case errors.Is(err, cgv.ErrProviderThrottled):
+		return "provider_throttled", true
+	case errors.Is(err, cgv.ErrCaptchaRequired):
+		return "captcha_required", false
+	case errors.Is(err, cgv.ErrAuthenticationRequired):
+		return "authentication_required", false
+	case errors.Is(err, cgv.ErrUIContractChanged):
+		return "ui_contract_changed", false
+	case errors.Is(err, cgv.ErrSeatAvailabilityIncomplete):
+		return "seat_availability_incomplete", false
+	case errors.Is(err, cgv.ErrTargetDateUnavailable):
+		return "target_date_unavailable", false
+	case errors.Is(err, context.DeadlineExceeded):
+		return "capture_timeout", true
+	default:
+		return "capture_failed", false
+	}
 }
 
 func (runtime *Runtime) commitResult(
@@ -711,7 +801,7 @@ func resultOutcome(result *observationpb.AssignmentResult) string {
 	if completed == nil {
 		return "failed"
 	}
-	if completed.GetCatalog() != nil || completed.GetSeatMap() != nil {
+	if completed.GetCatalog() != nil || completed.GetSeatMap() != nil || completed.GetSeatAvailability() != nil {
 		return "succeeded"
 	}
 	captures := completed.GetCaptures()
@@ -739,6 +829,8 @@ func assignmentTaskKind(task *observationpb.AssignmentTask) string {
 		return "catalog"
 	case task != nil && task.GetSeatMap() != nil:
 		return "seat_map"
+	case task != nil && task.GetSeatAvailability() != nil:
+		return "seat_availability"
 	case task != nil && task.GetSchedule() != nil:
 		return "schedule"
 	default:
@@ -754,6 +846,8 @@ func capabilityKey(capability *observationpb.Capability) string {
 		return "cgv.catalog.capture"
 	case capability != nil && capability.GetSeatMapCapture() != nil:
 		return "cgv.seat-map.capture"
+	case capability != nil && capability.GetSeatAvailabilityCapture() != nil:
+		return "cgv.seat-availability.capture"
 	default:
 		return ""
 	}

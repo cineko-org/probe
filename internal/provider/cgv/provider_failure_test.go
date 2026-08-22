@@ -9,6 +9,9 @@ import (
 
 func TestProviderHTTPErrorClassification(t *testing.T) {
 	t.Parallel()
+	if err := providerHTTPError(401); !errors.Is(err, ErrAuthenticationRequired) {
+		t.Fatalf("401 error = %v", err)
+	}
 	if err := providerHTTPError(403); !errors.Is(err, ErrProviderAccessBlocked) {
 		t.Fatalf("403 error = %v", err)
 	}

@@ -81,6 +81,8 @@ func (adapter *Adapter) captureScheduleRows() ([]providerScheduleRow, error) {
 
 func providerHTTPError(status int) error {
 	switch status {
+	case 401:
+		return fmt.Errorf("%w: HTTP %d", ErrAuthenticationRequired, status)
 	case 403:
 		return fmt.Errorf("%w: HTTP %d", ErrProviderAccessBlocked, status)
 	case 429:

@@ -256,6 +256,8 @@ func capabilityKeys(request *probepb.RegisterRequest) ([]string, error) {
 			key = "cgv.catalog.capture"
 		case capability != nil && capability.GetSeatMapCapture() != nil:
 			key = "cgv.seat-map.capture"
+		case capability != nil && capability.GetSeatAvailabilityCapture() != nil:
+			key = "cgv.seat-availability.capture"
 		default:
 			return nil, ErrUnauthorized
 		}
@@ -397,7 +399,7 @@ func normalizeCapabilities(values []string) ([]string, bool) {
 
 func isSupportedCapability(value string) bool {
 	for _, capability := range []string{
-		"cgv.schedule.capture", "cgv.catalog.capture", "cgv.seat-map.capture",
+		"cgv.schedule.capture", "cgv.catalog.capture", "cgv.seat-map.capture", "cgv.seat-availability.capture",
 	} {
 		if value == capability {
 			return true

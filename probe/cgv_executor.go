@@ -31,10 +31,15 @@ type seatMapBrowser interface {
 	CaptureSeatMap(context.Context, *observationpb.AssignmentTask) (*seatmappb.Snapshot, error)
 }
 
+type seatAvailabilityBrowser interface {
+	CaptureSeatAvailability(context.Context, *observationpb.AssignmentTask) (*seatmappb.AvailabilitySnapshot, error)
+}
+
 type CGVExecutor struct {
-	open    func(context.Context, cgvbrowser.Task) (scheduleBrowser, error)
-	clock   func() time.Time
-	seatMap SeatMapExecutor
+	open             func(context.Context, cgvbrowser.Task) (scheduleBrowser, error)
+	clock            func() time.Time
+	seatMap          SeatMapExecutor
+	seatAvailability SeatAvailabilityExecutor
 }
 
 func (executor *CGVExecutor) CaptureSeatMap(
@@ -64,6 +69,38 @@ func (executor *CGVExecutor) CaptureSeatMap(
 		return nil, errors.New("probe browser does not support seat-map capture")
 	}
 	return capture.CaptureSeatMap(ctx, task)
+}
+
+func (executor *CGVExecutor) CaptureSeatAvailability(
+	ctx context.Context,
+	task *observationpb.AssignmentTask,
+) (*seatmappb.AvailabilitySnapshot, error) {
+	seatTask := task.GetSeatAvailability()
+	if seatTask == nil {
+		return nil, errors.New("unsupported Probe task kind")
+	}
+	if err := requireManagedScan(task); err != nil {
+		return nil, err
+	}
+	if err := cgv.ValidateSeatAvailabilityTask(task); err != nil {
+		return nil, err
+	}
+	if executor.seatAvailability != nil {
+		return executor.seatAvailability.CaptureSeatAvailability(ctx, task)
+	}
+	if executor.open == nil {
+		return nil, errors.New("probe browser factory is unavailable")
+	}
+	browserSession, err := executor.open(ctx, scanBrowserTask(task))
+	if err != nil {
+		return nil, fmt.Errorf("open Probe browser: %w", err)
+	}
+	defer browserSession.Close()
+	capture, supported := browserSession.(seatAvailabilityBrowser)
+	if !supported {
+		return nil, errors.New("probe browser does not support seat-availability capture")
+	}
+	return capture.CaptureSeatAvailability(ctx, task)
 }
 
 func NewCGVExecutor(factory *cgvbrowser.Factory) (*CGVExecutor, error) {
@@ -222,6 +259,9 @@ func scanBrowserTask(task *observationpb.AssignmentTask) cgvbrowser.Task {
 	case task != nil && task.GetSeatMap() != nil:
 		result.Locale = task.GetSeatMap().GetLocale()
 		result.TimeZone = task.GetSeatMap().GetTimeZone()
+	case task != nil && task.GetSeatAvailability() != nil:
+		result.Locale = task.GetSeatAvailability().GetLocale()
+		result.TimeZone = task.GetSeatAvailability().GetTimeZone()
 	}
 	return result
 }
@@ -281,6 +321,11 @@ func (executor *CGVExecutor) convertCapture(
 		item.SetTheaterId(showtime.TheaterID)
 		item.SetMovie(movie)
 		item.SetAuditorium(auditorium)
+		scheduleDate, err := localDate(showtime.Date)
+		if err != nil {
+			return nil, fmt.Errorf("convert showtime %q schedule date: %w", showtime.ID, err)
+		}
+		item.SetScheduleDate(scheduleDate)
 		item.SetStartsAt(timestamppb.New(startsAt))
 		item.SetEndsAt(timestamppb.New(endsAt))
 		item.SetAvailableSeats(availableSeats)
