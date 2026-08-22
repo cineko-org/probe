@@ -160,6 +160,26 @@ func TestScheduleDateMismatchFailsClosed(t *testing.T) {
 	}
 }
 
+func TestScheduleCaptureFiltersRowsFromAnotherDate(t *testing.T) {
+	t.Parallel()
+	payload := strings.Replace(
+		scheduleResponseFixture("20260812"),
+		`]}`,
+		`,{"siteNo":"0056","siteNm":"용산아이파크몰","movNo":"00005678","scnsNo":"0008","scnsNm":"4관","scnYmd":"20260813","scnSseq":"0004","scnsrtTm":"1100","scnendTm":"1300","frSeatCnt":"8","stcnt":"40"}]}`,
+		1,
+	)
+	adapter := &Adapter{providerResponses: []capturedProviderResponse{{
+		path: scheduleResponsePath, status: 200, body: []byte(payload),
+	}}}
+	entries, err := adapter.extractSchedules("2026-08-12", testScheduleTheater())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Showtime.Date != "2026-08-12" {
+		t.Fatalf("target-date entries = %+v", entries)
+	}
+}
+
 func TestScheduleCaptureFiltersLinkedVenueRows(t *testing.T) {
 	t.Parallel()
 	payload := strings.Replace(

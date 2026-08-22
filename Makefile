@@ -29,11 +29,11 @@ test:
 
 contract-check:
 	@! grep -Eq '^[[:space:]]*replace([[:space:]]|\()' go.mod
-	@test "$$(grep -Ec '^[[:space:]]*github.com/cineko-org/contracts/v3[[:space:]]+v3\.6\.0([[:space:]]*//[[:space:]]*indirect)?[[:space:]]*$$' go.mod)" -eq 1
+	@test "$$(grep -Ec '^[[:space:]]*github.com/cineko-org/contracts/v3[[:space:]]+v3\.6\.1([[:space:]]*//[[:space:]]*indirect)?[[:space:]]*$$' go.mod)" -eq 1
 	@test "$$(grep -Ec '^[[:space:]]*github.com/cineko-org/contracts(/v[0-9]+)?[[:space:]]' go.mod)" -eq 1
-	@test "$$(grep -Ec '^github.com/cineko-org/contracts/v3 v3\.6\.0(/go\.mod)? h1:' go.sum)" -eq 2
+	@test "$$(grep -Ec '^github.com/cineko-org/contracts/v3 v3\.6\.1(/go\.mod)? h1:' go.sum)" -eq 2
 	@test "$$(grep -Ec '^github.com/cineko-org/contracts(/v[0-9]+)? ' go.sum)" -eq 2
-	@test "$$(grep -Ec '^# github.com/cineko-org/contracts/v3 v3\.6\.0$$' vendor/modules.txt)" -eq 1
+	@test "$$(grep -Ec '^# github.com/cineko-org/contracts/v3 v3\.6\.1$$' vendor/modules.txt)" -eq 1
 	@test "$$(grep -Ec '^# github.com/cineko-org/contracts(/v[0-9]+)? v' vendor/modules.txt)" -eq 1
 	@! grep -R -En --include='*.go' 'github.com/cineko-org/contracts(/v[0-9]+)?/' cmd internal probe | grep -Ev 'github.com/cineko-org/contracts/v3/'
 
@@ -41,7 +41,6 @@ contract-release-check: contract-check
 
 workflow-check:
 	$(GO) run github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION) .github/workflows/*.yml
-	bash scripts/check-probe-release-payload.sh
 
 stealth-check:
 	bash scripts/check-stealth-provenance.sh

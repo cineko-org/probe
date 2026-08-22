@@ -10,14 +10,17 @@ import (
 	"testing"
 	"time"
 
+	"buf.build/go/protovalidate"
 	catalogpb "github.com/cineko-org/contracts/v3/gen/go/cineko/catalog"
 	commonpb "github.com/cineko-org/contracts/v3/gen/go/cineko/common"
 	observationpb "github.com/cineko-org/contracts/v3/gen/go/cineko/observation"
 	probepb "github.com/cineko-org/contracts/v3/gen/go/cineko/probe"
+	servicepb "github.com/cineko-org/contracts/v3/gen/go/cineko/service"
 	"github.com/cineko-org/probe/v2/internal/provider/cgv"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 func TestAPIErrorFormatsStableMetadata(t *testing.T) {
@@ -52,6 +55,7 @@ func TestHTTPAPIProbeLifecycleContract(t *testing.T) {
 			writeProtoJSON(t, writer, response)
 		case "/v1/probes/probe_01/assignments:claim":
 			assertRequestHeaders(t, request, "access_01", "", "")
+			assertProtoRequest(t, request, &probepb.ClaimAssignmentRequest{})
 			assignment := &probepb.AssignmentLease{}
 			assignment.SetAssignmentId("assignment_01")
 			assignment.SetLeaseToken("lease_01")
@@ -64,20 +68,34 @@ func TestHTTPAPIProbeLifecycleContract(t *testing.T) {
 			writeProtoJSON(t, writer, response)
 		case "/v1/assignments/assignment_01/heartbeat":
 			assertRequestHeaders(t, request, "access_01", "", "lease_01")
+			input := &probepb.HeartbeatAssignmentRequest{}
+			assertProtoRequest(t, request, input)
+			if input.GetAssignmentId() != "assignment_01" || input.GetLeaseToken() != "lease_01" {
+				t.Errorf("assignment heartbeat request = %+v", input)
+			}
 			response := &probepb.HeartbeatAssignmentResponse{}
 			response.SetLeaseExpiresAt(timestamppb.New(time.Date(2026, 8, 10, 5, 3, 0, 0, time.UTC)))
 			writeProtoJSON(t, writer, response)
 		case "/v1/assignments/assignment_01/result":
 			assertRequestHeaders(t, request, "access_01", "run_01", "lease_01")
+			input := &probepb.SubmitAssignmentResultRequest{}
+			assertProtoRequest(t, request, input)
+			if input.GetAssignmentId() != "assignment_01" || input.GetLeaseToken() != "lease_01" ||
+				input.GetResult().GetRunId() != "run_01" {
+				t.Errorf("assignment result request = %+v", input)
+			}
 			receipt := &observationpb.ResultReceipt{}
 			receipt.SetAssignmentId("assignment_01")
 			receipt.SetRunId("run_01")
 			receipt.SetContentHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 			receipt.SetAccepted(&observationpb.Accepted{})
-			writeProtoJSON(t, writer, receipt)
+			response := &servicepb.SubmitAssignmentResultResponse{}
+			response.SetReceipt(receipt)
+			writeProtoJSON(t, writer, response)
 		case "/v1/probes/probe_01/disconnect":
 			assertRequestHeaders(t, request, "access_01", "", "")
-			writer.WriteHeader(http.StatusNoContent)
+			assertProtoRequest(t, request, &servicepb.DisconnectRequest{})
+			writeProtoJSON(t, writer, &servicepb.DisconnectResponse{})
 		default:
 			http.NotFound(writer, request)
 		}
@@ -137,6 +155,12 @@ func TestHTTPAPIEmptyClaimAndErrors(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.URL.Query().Get("case") {
 		case "empty":
+			response := &probepb.ClaimAssignmentResponse{}
+			noAssignment := &probepb.NoAssignment{}
+			noAssignment.SetRetryAt(timestamppb.New(time.Now().Add(time.Minute)))
+			response.SetNoAssignment(noAssignment)
+			writeProtoJSON(t, writer, response)
+		case "legacy-204":
 			writer.WriteHeader(http.StatusNoContent)
 		case "unauthorized":
 			writeAPIError(t, writer, http.StatusUnauthorized, "unauthorized", "no", false, "req_01")
@@ -150,7 +174,7 @@ func TestHTTPAPIEmptyClaimAndErrors(t *testing.T) {
 		case "bad-success":
 			_, _ = writer.Write([]byte(`not-json`))
 		case "unexpected":
-			_, _ = writer.Write([]byte(`{}`))
+			_, _ = writer.Write([]byte(`{"unexpected":true}`))
 		case "large":
 			_, _ = writer.Write(bytes.Repeat([]byte("x"), maxResponseBody+1))
 		}
@@ -162,12 +186,19 @@ func TestHTTPAPIEmptyClaimAndErrors(t *testing.T) {
 	}
 	api.baseURL.RawQuery = "case=empty"
 	assignment, err := api.ClaimAssignment(context.Background(), Session{ProbeID: "probe", AccessToken: "token"})
-	if err != nil || assignment != nil {
+	if err != nil || assignment.GetNoAssignment() == nil {
 		t.Fatalf("empty claim = %+v, %v", assignment, err)
+	}
+	api.baseURL.RawQuery = "case=legacy-204"
+	if _, err := api.ClaimAssignment(context.Background(), Session{ProbeID: "probe", AccessToken: "token"}); err == nil {
+		t.Fatal("legacy 204 no-assignment response accepted")
 	}
 	for name, want := range map[string]error{"unauthorized": ErrUnauthorized, "expired": ErrLeaseExpired} {
 		api.baseURL.RawQuery = "case=" + name
-		_, err := api.CommitResult(context.Background(), Session{}, &probepb.AssignmentLease{}, &observationpb.AssignmentResult{})
+		lease := &probepb.AssignmentLease{}
+		lease.SetAssignmentId("assignment_01")
+		lease.SetLeaseToken("lease_01")
+		_, err := api.CommitResult(context.Background(), Session{}, lease, assignmentResultForTest())
 		if !errors.Is(err, want) {
 			t.Fatalf("%s error = %v", name, err)
 		}
@@ -187,6 +218,9 @@ func TestHTTPAPIEmptyClaimAndErrors(t *testing.T) {
 	api.baseURL.RawQuery = "case=unexpected"
 	if err := api.DisconnectProbe(context.Background(), Session{}); err == nil {
 		t.Fatal("unexpected disconnect body accepted")
+	}
+	if err := api.request(context.Background(), http.MethodGet, "/", "", "", "", nil, nil); err == nil {
+		t.Fatal("unexpected response body accepted without an output envelope")
 	}
 }
 
@@ -249,6 +283,19 @@ func TestHTTPAPIValidationAndTransportFailures(t *testing.T) {
 	if _, err := api.newRequest(context.Background(), "bad\nmethod", "/", "", "", "", nil); err == nil {
 		t.Fatal("invalid HTTP method accepted")
 	}
+	if err := api.request(context.Background(), "bad\nmethod", "/", "", "", "", nil, nil); err == nil {
+		t.Fatal("request accepted an invalid HTTP method")
+	}
+	if _, err := api.newRequest(
+		context.Background(), http.MethodPut, "/", "", "", "", &probepb.HeartbeatAssignmentRequest{},
+	); err == nil {
+		t.Fatal("invalid generated request accepted")
+	}
+	if _, err := api.newRequest(
+		context.Background(), http.MethodPut, "/", "", "", "", wrapperspb.String("\xff"),
+	); err == nil {
+		t.Fatal("invalid UTF-8 protobuf string accepted")
+	}
 	api.client.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(nil))}, nil
 	})
@@ -263,6 +310,19 @@ func TestHTTPAPIValidationAndTransportFailures(t *testing.T) {
 	}
 }
 
+func assignmentResultForTest() *observationpb.AssignmentResult {
+	result := &observationpb.AssignmentResult{}
+	result.SetRunId("run_01")
+	result.SetStartedAt(timestamppb.Now())
+	result.SetFinishedAt(timestamppb.Now())
+	completed := &observationpb.Completed{}
+	schedule := &observationpb.ScheduleCaptures{}
+	schedule.SetCaptures([]*observationpb.Capture{{}})
+	completed.SetSchedule(schedule)
+	result.SetCompleted(completed)
+	return result
+}
+
 func assertRequestHeaders(t *testing.T, request *http.Request, bearer, idempotency, lease string) {
 	t.Helper()
 	if request.Header.Get("Authorization") != "Bearer "+bearer ||
@@ -270,6 +330,25 @@ func assertRequestHeaders(t *testing.T, request *http.Request, bearer, idempoten
 		request.Header.Get("X-Cineko-Lease-Token") != lease {
 		t.Errorf("request headers = %v", request.Header)
 	}
+}
+
+func assertProtoRequest(t *testing.T, request *http.Request, message proto.Message) {
+	t.Helper()
+	if err := (protojson.UnmarshalOptions{DiscardUnknown: false}).Unmarshal(readRequestBody(t, request), message); err != nil {
+		t.Fatalf("decode %T request: %v", message, err)
+	}
+	if err := protovalidate.Validate(message); err != nil {
+		t.Fatalf("validate %T request: %v", message, err)
+	}
+}
+
+func readRequestBody(t *testing.T, request *http.Request) []byte {
+	t.Helper()
+	payload, err := io.ReadAll(request.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return payload
 }
 
 func writeProtoJSON(t *testing.T, writer http.ResponseWriter, message proto.Message) {

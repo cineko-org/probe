@@ -23,6 +23,12 @@ func TestLiveScheduleCapture(t *testing.T) {
 	defer adapter.Close()
 	location := time.FixedZone("KST", 9*60*60)
 	date := time.Now().In(location).Format(time.DateOnly)
+	if configured := os.Getenv("CINEKO_LIVE_SCHEDULE_DATE"); configured != "" {
+		if _, parseErr := time.ParseInLocation(time.DateOnly, configured, location); parseErr != nil {
+			t.Fatalf("invalid CINEKO_LIVE_SCHEDULE_DATE: %v", parseErr)
+		}
+		date = configured
+	}
 	theater := ScheduleTheater{
 		ID: CatalogID(ProviderCGV, "theater", "0013"), ProviderID: ProviderCGV,
 		SourceKey: "0013", Region: "서울", Name: "용산아이파크몰",
