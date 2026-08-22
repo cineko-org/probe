@@ -306,7 +306,8 @@ func (executor *CGVExecutor) convertCapture(
 	}
 	showtimes := make([]*catalogpb.Showtime, 0, len(value.Showtimes))
 	for _, showtime := range value.Showtimes {
-		if err := validateCanonicalShowtime(showtime); err != nil {
+		showtimeParts, showtimeIdentity, err := canonicalShowtimeContract(showtime)
+		if err != nil {
 			return nil, err
 		}
 		startsAt, endsAt, err := cgv.ParseShowtimeRange(showtime.Date, showtime.StartsAt, showtime.EndsAt, location)
@@ -333,11 +334,7 @@ func (executor *CGVExecutor) convertCapture(
 		auditorium := &catalogpb.Auditorium{}
 		auditorium.SetId(showtime.AuditoriumID)
 		auditorium.SetTheaterId(showtime.TheaterID)
-		auditoriumSite, auditoriumScreen, ok := strings.Cut(showtime.AuditoriumSourceKey, "/")
-		if !ok || auditoriumSite == "" || auditoriumScreen == "" {
-			return nil, fmt.Errorf("%w: convert showtime %q auditorium identity is not canonical", cgv.ErrIdentityMismatch, showtime.ID)
-		}
-		auditorium.SetIdentity(cgv.NewAuditoriumIdentity(auditoriumSite, auditoriumScreen))
+		auditorium.SetIdentity(cgv.NewAuditoriumIdentity(showtimeParts[0], showtimeParts[2]))
 		auditorium.SetName(showtime.AuditoriumName)
 		auditorium.SetScreenTypes(append([]string(nil), showtime.ScreenTypes...))
 		auditorium.SetCapacity(capacity)
@@ -347,14 +344,6 @@ func (executor *CGVExecutor) convertCapture(
 		item.SetTheaterId(showtime.TheaterID)
 		item.SetMovie(movie)
 		item.SetAuditorium(auditorium)
-		showtimeParts := strings.Split(showtime.SourceKey, "/")
-		if len(showtimeParts) != 4 {
-			return nil, fmt.Errorf("%w: convert showtime %q identity is not canonical", cgv.ErrIdentityMismatch, showtime.ID)
-		}
-		showtimeIdentity, err := cgv.NewShowtimeIdentity(showtimeParts[0], showtimeParts[1], showtimeParts[2], showtimeParts[3])
-		if err != nil {
-			return nil, fmt.Errorf("%w: convert showtime %q schedule date: %w", cgv.ErrIdentityMismatch, showtime.ID, err)
-		}
 		item.SetIdentity(showtimeIdentity)
 		item.SetStartsAt(timestamppb.New(startsAt))
 		item.SetEndsAt(timestamppb.New(endsAt))
@@ -369,15 +358,20 @@ func (executor *CGVExecutor) convertCapture(
 }
 
 func validateCanonicalShowtime(showtime cgv.ScheduleShowtime) error {
+	_, _, err := canonicalShowtimeContract(showtime)
+	return err
+}
+
+func canonicalShowtimeContract(showtime cgv.ScheduleShowtime) ([]string, *catalogpb.ShowtimeIdentity, error) {
 	if showtime.ProviderID != cgv.ProviderCGV || strings.TrimSpace(showtime.TheaterID) == "" {
-		return fmt.Errorf("%w: convert showtime provider and theater identities are required", cgv.ErrIdentityMismatch)
+		return nil, nil, fmt.Errorf("%w: convert showtime provider and theater identities are required", cgv.ErrIdentityMismatch)
 	}
 	showtimeParts, err := canonicalShowtimeSourceParts(showtime.SourceKey)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	if err := validateAuditoriumSourceKey(showtime.AuditoriumSourceKey, showtimeParts[0], showtimeParts[2]); err != nil {
-		return err
+		return nil, nil, err
 	}
 	identities := []struct {
 		kind      string
@@ -391,13 +385,15 @@ func validateCanonicalShowtime(showtime cgv.ScheduleShowtime) error {
 	for _, identity := range identities {
 		if strings.TrimSpace(identity.sourceKey) == "" ||
 			identity.id != cgv.CatalogID(cgv.ProviderCGV, identity.kind, identity.sourceKey) {
-			return fmt.Errorf("%w: convert showtime %s identity is not canonical", cgv.ErrIdentityMismatch, identity.kind)
+			return nil, nil, fmt.Errorf("%w: convert showtime %s identity is not canonical", cgv.ErrIdentityMismatch, identity.kind)
 		}
 	}
 	if showtime.TheaterID != cgv.CatalogID(cgv.ProviderCGV, "theater", showtimeParts[0]) {
-		return fmt.Errorf("%w: convert theater identity is not canonical", cgv.ErrIdentityMismatch)
+		return nil, nil, fmt.Errorf("%w: convert theater identity is not canonical", cgv.ErrIdentityMismatch)
 	}
-	return nil
+	// canonicalShowtimeSourceParts already proved that the schedule date is valid.
+	showtimeIdentity, _ := cgv.NewShowtimeIdentity(showtimeParts[0], showtimeParts[1], showtimeParts[2], showtimeParts[3])
+	return showtimeParts, showtimeIdentity, nil
 }
 
 func canonicalShowtimeSourceParts(sourceKey string) ([]string, error) {

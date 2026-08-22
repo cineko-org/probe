@@ -641,8 +641,12 @@ func validateExecutionOutput(output executionOutput) error {
 		}
 	}
 	if output.catalog != nil {
-		if err := protovalidate.Validate(output.catalog); err != nil {
-			return fmt.Errorf("%w: %w", errInvalidExecutionOutput, err)
+		if output.catalog.GetProvider() == nil || strings.TrimSpace(output.catalog.GetProvider().GetId()) == "" ||
+			output.catalog.GetObservedAt() == nil {
+			return fmt.Errorf("%w: catalog provider and observation time are required", errInvalidExecutionOutput)
+		}
+		if err := output.catalog.GetObservedAt().CheckValid(); err != nil {
+			return fmt.Errorf("%w: invalid catalog observation time: %w", errInvalidExecutionOutput, err)
 		}
 	}
 	if output.captures != nil && len(output.captures) == 0 {
