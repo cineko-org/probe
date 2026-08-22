@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.1](https://github.com/cineko-org/probe/compare/v2.7.0...v2.7.1) (2026-08-22)
+
+
+### Bug Fixes
+
+* accept provider-scoped catalog assignments ([#25](https://github.com/cineko-org/probe/issues/25)) ([80fe25b](https://github.com/cineko-org/probe/commit/80fe25b7b215e8266d59e082e9561333aa58e564))
+
 ## [2.7.0](https://github.com/cineko-org/probe/compare/v2.6.0...v2.7.0) (2026-08-22)
 
 
