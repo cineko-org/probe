@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	catalogpb "github.com/cineko-org/contracts/v3/gen/go/cineko/catalog"
 	commonpb "github.com/cineko-org/contracts/v3/gen/go/cineko/common"
@@ -16,7 +17,7 @@ func TheaterSiteNo(theater *catalogpb.Theater) (string, bool) {
 		return "", false
 	}
 	value := strings.TrimSpace(theater.GetIdentity().GetCgv().GetSiteNo())
-	return value, numericIdentifier(value)
+	return value, providerSiteIdentifier(value)
 }
 
 // AuditoriumIdentityValues returns the typed CGV site/screen tuple.
@@ -26,7 +27,7 @@ func AuditoriumIdentityValues(auditorium *catalogpb.Auditorium) (string, string,
 	}
 	identity := auditorium.GetIdentity().GetCgv()
 	siteNo, screenNo := strings.TrimSpace(identity.GetSiteNo()), strings.TrimSpace(identity.GetScreenNo())
-	return siteNo, screenNo, numericIdentifier(siteNo) && numericIdentifier(screenNo)
+	return siteNo, screenNo, providerSiteIdentifier(siteNo) && numericIdentifier(screenNo)
 }
 
 // ShowtimeIdentityValues returns the typed CGV identity tuple. The schedule
@@ -38,7 +39,7 @@ func ShowtimeIdentityValues(showtime *catalogpb.Showtime) (string, string, strin
 	identity := showtime.GetIdentity().GetCgv()
 	siteNo, screenNo, sequence := strings.TrimSpace(identity.GetSiteNo()), strings.TrimSpace(identity.GetScreenNo()), strings.TrimSpace(identity.GetSequence())
 	date := localDateValue(identity.GetScheduleDate())
-	return siteNo, date, screenNo, sequence, numericIdentifier(siteNo) && date != "" && numericIdentifier(screenNo) && numericIdentifier(sequence)
+	return siteNo, date, screenNo, sequence, providerSiteIdentifier(siteNo) && date != "" && numericIdentifier(screenNo) && numericIdentifier(sequence)
 }
 
 func NewTheaterIdentity(siteNo string) *catalogpb.TheaterIdentity {
@@ -114,4 +115,8 @@ func numericIdentifier(value string) bool {
 		}
 	}
 	return true
+}
+
+func providerSiteIdentifier(value string) bool {
+	return value != "" && utf8.RuneCountInString(value) <= 64
 }
