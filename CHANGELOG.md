@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.4](https://github.com/cineko-org/probe/compare/v2.7.3...v2.7.4) (2026-08-22)
+
+
+### Bug Fixes
+
+* isolate linked venue schedules ([#31](https://github.com/cineko-org/probe/issues/31)) ([d0e936f](https://github.com/cineko-org/probe/commit/d0e936f5ab9cbf7f122fc56abafdbb9041c187c7))
+
 ## [2.7.3](https://github.com/cineko-org/probe/compare/v2.7.2...v2.7.3) (2026-08-22)
 
 
