@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.2](https://github.com/cineko-org/probe/compare/v2.7.1...v2.7.2) (2026-08-22)
+
+
+### Bug Fixes
+
+* parse current CGV theater catalog ([#27](https://github.com/cineko-org/probe/issues/27)) ([c8a7acf](https://github.com/cineko-org/probe/commit/c8a7acfd0236048834cb43f4b8dc6de2bbecdb7a))
+
 ## [2.7.1](https://github.com/cineko-org/probe/compare/v2.7.0...v2.7.1) (2026-08-22)
 
 
