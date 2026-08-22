@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.0](https://github.com/cineko-org/probe/compare/v2.6.0...v2.7.0) (2026-08-22)
+
+
+### Features
+
+* enforce durable seat capture contract ([#23](https://github.com/cineko-org/probe/issues/23)) ([7fdb1fa](https://github.com/cineko-org/probe/commit/7fdb1fa4406c1c6ea47da769d159930710bd5c67))
+
 ## [2.6.0](https://github.com/cineko-org/probe/compare/v2.5.2...v2.6.0) (2026-08-22)
 
 
