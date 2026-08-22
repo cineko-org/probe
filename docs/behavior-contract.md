@@ -39,3 +39,9 @@ Before returning a typed deferred or failed result, Probe records only the Go
 error class in structured logs through `provider_error_summary`. It never reads
 the provider-controlled error text for that attribute, so URLs, userinfo,
 credentials, headers, tokens, and cookies cannot enter the summary.
+
+## Central wire boundary
+
+Probe uses only the latest generated service request and response messages for disconnect, assignment claim, lease heartbeat, and result submission. Claiming no work is a successful typed `ClaimAssignmentResponse.no_assignment`; an empty body or HTTP 204 is a contract failure. Result submission requires a generated response with a non-nil receipt. Unknown ProtoJSON fields and direct inner-message top-level bodies fail closed.
+
+Probe release publication constructs `PublishProbeRequest` with generated Go code and strictly decodes `PublishProbeResponse`. Shell and `jq` may not author release-registry wire JSON. A successful publication requires a non-empty generated response and positive release-generation header.

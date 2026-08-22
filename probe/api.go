@@ -15,6 +15,7 @@ import (
 	commonpb "github.com/cineko-org/contracts/v3/gen/go/cineko/common"
 	observationpb "github.com/cineko-org/contracts/v3/gen/go/cineko/observation"
 	probepb "github.com/cineko-org/contracts/v3/gen/go/cineko/probe"
+	servicepb "github.com/cineko-org/contracts/v3/gen/go/cineko/service"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -113,7 +114,7 @@ func (api *HTTPAPI) HeartbeatProbe(
 func (api *HTTPAPI) DisconnectProbe(ctx context.Context, session Session) error {
 	return api.request(
 		ctx, http.MethodPost, "/v1/probes/"+url.PathEscape(session.ProbeID)+"/disconnect",
-		session.AccessToken, "", "", nil, nil,
+		session.AccessToken, "", "", &servicepb.DisconnectRequest{}, &servicepb.DisconnectResponse{},
 	)
 }
 
@@ -124,11 +125,8 @@ func (api *HTTPAPI) ClaimAssignment(
 	output := &probepb.ClaimAssignmentResponse{}
 	err := api.request(
 		ctx, http.MethodPost, "/v1/probes/"+url.PathEscape(session.ProbeID)+"/assignments:claim",
-		session.AccessToken, "", "", nil, output,
+		session.AccessToken, "", "", &probepb.ClaimAssignmentRequest{}, output,
 	)
-	if errors.Is(err, errNoContent) {
-		return nil, nil
-	}
 	return output, err
 }
 
@@ -137,10 +135,13 @@ func (api *HTTPAPI) HeartbeatAssignment(
 	session Session,
 	assignment *probepb.AssignmentLease,
 ) (*probepb.HeartbeatAssignmentResponse, error) {
+	input := &probepb.HeartbeatAssignmentRequest{}
+	input.SetAssignmentId(assignment.GetAssignmentId())
+	input.SetLeaseToken(assignment.GetLeaseToken())
 	output := &probepb.HeartbeatAssignmentResponse{}
 	err := api.request(
 		ctx, http.MethodPut, "/v1/assignments/"+url.PathEscape(assignment.GetAssignmentId())+"/heartbeat",
-		session.AccessToken, "", assignment.GetLeaseToken(), nil, output,
+		session.AccessToken, "", assignment.GetLeaseToken(), input, output,
 	)
 	return output, err
 }
@@ -151,15 +152,17 @@ func (api *HTTPAPI) CommitResult(
 	assignment *probepb.AssignmentLease,
 	result *observationpb.AssignmentResult,
 ) (*observationpb.ResultReceipt, error) {
-	output := &observationpb.ResultReceipt{}
+	input := &probepb.SubmitAssignmentResultRequest{}
+	input.SetAssignmentId(assignment.GetAssignmentId())
+	input.SetLeaseToken(assignment.GetLeaseToken())
+	input.SetResult(result)
+	output := &servicepb.SubmitAssignmentResultResponse{}
 	err := api.request(
 		ctx, http.MethodPut, "/v1/assignments/"+url.PathEscape(assignment.GetAssignmentId())+"/result",
-		session.AccessToken, result.GetRunId(), assignment.GetLeaseToken(), result, output,
+		session.AccessToken, result.GetRunId(), assignment.GetLeaseToken(), input, output,
 	)
-	return output, err
+	return output.GetReceipt(), err
 }
-
-var errNoContent = errors.New("central returned no content")
 
 func (api *HTTPAPI) request(
 	ctx context.Context,
@@ -187,12 +190,6 @@ func (api *HTTPAPI) request(
 	if len(contents) > maxResponseBody {
 		return errors.New("central API response exceeds size limit")
 	}
-	if response.StatusCode == http.StatusNoContent {
-		if output != nil {
-			return errNoContent
-		}
-		return nil
-	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return decodeAPIError(response, contents)
 	}
@@ -219,6 +216,9 @@ func (api *HTTPAPI) newRequest(
 ) (*http.Request, error) {
 	var body io.Reader
 	if input != nil {
+		if err := protovalidate.Validate(input); err != nil {
+			return nil, fmt.Errorf("validate Central API request: %w", err)
+		}
 		encoded, err := protojson.MarshalOptions{UseProtoNames: false}.Marshal(input)
 		if err != nil {
 			return nil, fmt.Errorf("encode Central API request: %w", err)

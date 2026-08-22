@@ -125,25 +125,16 @@ jobs:
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
           PROBE_VERSION: ${{ steps.runtime.outputs.version }}
           PUBLISHED_AT: ${{ steps.runtime.outputs.published_at }}
-          RELEASE_PUBLISH_TOKEN: ${{ secrets.CINEKO_RELEASE_PUBLISH_TOKEN }}
+          CINEKO_RELEASE_PUBLISH_TOKEN: ${{ secrets.CINEKO_RELEASE_PUBLISH_TOKEN }}
         run: |
           set -euo pipefail
-          payload="$(bash scripts/render-probe-release.sh \
+          go run ./cmd/releasecontract publish \
+            "$CENTRAL_URL" \
             "$PROBE_VERSION" \
             "$BROWSER_REVISION" \
             "$IMAGE" \
             "$IMAGE_DIGEST" \
-            "$PUBLISHED_AT")"
-          curl --fail-with-body --silent --show-error \
-            --retry 5 \
-            --retry-all-errors \
-            --retry-delay 2 \
-            --retry-max-time 60 \
-            --request POST \
-            --header "Authorization: Bearer ${RELEASE_PUBLISH_TOKEN}" \
-            --header "Content-Type: application/json" \
-            --data "$payload" \
-            "${CENTRAL_URL%/}/v1/release-registry/probe"
+            "$PUBLISHED_AT"
 
       - name: Request immutable deployment
         env:
