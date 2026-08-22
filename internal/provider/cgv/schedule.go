@@ -157,7 +157,16 @@ func (adapter *Adapter) selectDate(isoDate string) error {
 	now := time.Now().In(time.FixedZone("KST", 9*60*60))
 	labels := dateSelectionLabels(parsed, now)
 	for _, label := range labels {
-		adapter.resetProviderResponses()
+		selected, err := adapter.buttonSelected(label)
+		if err != nil {
+			return err
+		}
+		if selected {
+			return nil
+		}
+	}
+	adapter.resetProviderResponses()
+	for _, label := range labels {
 		clicked, err := adapter.clickButtonExact(label)
 		if err != nil {
 			return err

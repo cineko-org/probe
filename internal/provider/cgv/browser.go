@@ -17,9 +17,10 @@ import (
 )
 
 const (
-	homeURL          = "https://cgv.co.kr/"
-	loginURL         = "https://cgv.co.kr/mem/login?returnUrl=%2F"
-	bookingCinemaURL = "https://cgv.co.kr/cnm/movieBook/cinema"
+	homeURL                     = "https://cgv.co.kr/"
+	loginURL                    = "https://cgv.co.kr/mem/login?returnUrl=%2F"
+	bookingCinemaURL            = "https://cgv.co.kr/cnm/movieBook/cinema"
+	selectedButtonSemanticTitle = "선택됨"
 )
 
 var (
@@ -816,6 +817,25 @@ func (adapter *Adapter) buttonExists(label string) (bool, error) {
 	var exists bool
 	err := adapter.evaluate(expression, &exists)
 	return exists, err
+}
+
+// buttonSelected reports CGV's semantic selected marker even when clicking the
+// already-active control would not issue another provider request.
+func (adapter *Adapter) buttonSelected(label string) (bool, error) {
+	expression := fmt.Sprintf(`(() => {
+		const expected = %s;
+		const normalize = value => (value || '').replace(/\s+/g, ' ').trim();
+		const button = window.__cinekoQueryAll('button').find(candidate =>
+			normalize(candidate.innerText || candidate.textContent) === expected);
+		return button ? normalize(button.getAttribute('title')) : '';
+	})()`, jsString(label))
+	var title string
+	err := adapter.evaluate(expression, &title)
+	return selectedButtonTitle(title), err
+}
+
+func selectedButtonTitle(value string) bool {
+	return strings.TrimSpace(value) == selectedButtonSemanticTitle
 }
 
 func jsString(value string) string {
