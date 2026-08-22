@@ -34,6 +34,39 @@ func TestCGVExecutorCapturesSeatAvailability(t *testing.T) {
 	}
 }
 
+func TestCGVExecutorSeatAvailabilityValidationAndBrowserFailures(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	if _, err := (&CGVExecutor{}).CaptureSeatAvailability(ctx, &observationpb.AssignmentTask{}); err == nil {
+		t.Fatal("schedule task accepted as seat-availability capture")
+	}
+
+	missingEgress := seatAvailabilityAssignmentTaskForProbe()
+	missingEgress.GetEgress().ClearManagedScan()
+	if _, err := (&CGVExecutor{}).CaptureSeatAvailability(ctx, missingEgress); err == nil {
+		t.Fatal("seat-availability capture without managed scan accepted")
+	}
+
+	if _, err := (&CGVExecutor{}).CaptureSeatAvailability(ctx, seatAvailabilityAssignmentTaskForProbe()); err == nil {
+		t.Fatal("seat-availability capture without browser factory accepted")
+	}
+
+	openFailure := &CGVExecutor{open: func(context.Context, cgvbrowser.Task) (scheduleBrowser, error) {
+		return nil, errIO
+	}}
+	if _, err := openFailure.CaptureSeatAvailability(ctx, seatAvailabilityAssignmentTaskForProbe()); !errors.Is(err, errIO) {
+		t.Fatalf("seat-availability browser open error = %v", err)
+	}
+
+	unsupported := &CGVExecutor{open: func(context.Context, cgvbrowser.Task) (scheduleBrowser, error) {
+		return &scheduleOnlyBrowser{}, nil
+	}}
+	if _, err := unsupported.CaptureSeatAvailability(ctx, seatAvailabilityAssignmentTaskForProbe()); err == nil {
+		t.Fatal("schedule-only browser accepted for seat-availability capture")
+	}
+}
+
 func TestCGVExecutorOpensStandaloneSeatAvailabilityBrowser(t *testing.T) {
 	t.Parallel()
 	want := validAvailabilitySnapshot()
@@ -75,6 +108,9 @@ func TestRuntimeProcessesSeatAvailabilityAndPreservesProtectionReasons(t *testin
 		{err: cgv.ErrProviderThrottled, code: "provider_throttled", retryable: true},
 		{err: cgv.ErrCaptchaRequired, code: "captcha_required"},
 		{err: cgv.ErrAuthenticationRequired, code: "authentication_required"},
+		{err: cgv.ErrUIContractChanged, code: "ui_contract_changed"},
+		{err: cgv.ErrSeatAvailabilityIncomplete, code: "seat_availability_incomplete"},
+		{err: cgv.ErrTargetDateUnavailable, code: "target_date_unavailable"},
 		{err: context.DeadlineExceeded, code: "capture_timeout", retryable: true},
 	} {
 		code, retryable := captureFailure(test.err)
@@ -86,6 +122,31 @@ func TestRuntimeProcessesSeatAvailabilityAndPreservesProtectionReasons(t *testin
 	if err != nil || result.GetFailed() == nil || result.GetFailed().GetReasonCode() != "invalid_result" {
 		t.Fatalf("invalid availability result = %+v, %v", result, err)
 	}
+}
+
+func TestValidateSeatAvailabilityCaptureRejectsInvalidResults(t *testing.T) {
+	t.Parallel()
+	task := seatAvailabilityAssignmentTaskForProbe()
+	invalid := func(name string, task *observationpb.AssignmentTask, snapshot *seatmappb.AvailabilitySnapshot) {
+		t.Helper()
+		if err := validateSeatAvailabilityCapture(task, snapshot); err == nil || !errors.Is(err, errInvalidExecutionOutput) {
+			t.Fatalf("%s error = %v, want invalid execution output", name, err)
+		}
+	}
+
+	invalid("missing snapshot", task, nil)
+	invalid("invalid snapshot", task, &seatmappb.AvailabilitySnapshot{})
+	invalid("missing assignment target", nil, validAvailabilitySnapshot())
+	missingShowtime := seatAvailabilityAssignmentTaskForProbe()
+	missingShowtime.GetSeatAvailability().ClearShowtime()
+	invalid("missing showtime", missingShowtime, validAvailabilitySnapshot())
+
+	mismatched := validAvailabilitySnapshot()
+	mismatched.SetShowtimeId("cgv:showtime:other")
+	invalid("mismatched identity", task, mismatched)
+
+	invalid("duplicate seats", task, availabilityWithSeats("A", "A"))
+	invalid("unsorted seats", task, availabilityWithSeats("B", "A"))
 }
 
 type fakeProbeSeatAvailabilityExecutor struct {
@@ -193,5 +254,17 @@ func validAvailabilitySnapshot() *seatmappb.AvailabilitySnapshot {
 	snapshot.SetLayoutHash(strings.Repeat("a", 64))
 	snapshot.SetAvailableSeats([]*seatmappb.AvailableSeat{})
 	snapshot.SetObservedAt(timestamppb.Now())
+	return snapshot
+}
+
+func availabilityWithSeats(ids ...string) *seatmappb.AvailabilitySnapshot {
+	snapshot := validAvailabilitySnapshot()
+	seats := make([]*seatmappb.AvailableSeat, 0, len(ids))
+	for _, id := range ids {
+		seat := &seatmappb.AvailableSeat{}
+		seat.SetSeatId(id)
+		seats = append(seats, seat)
+	}
+	snapshot.SetAvailableSeats(seats)
 	return snapshot
 }
