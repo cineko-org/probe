@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -65,6 +66,7 @@ type seatDataBlock struct {
 }
 
 type seatDataSeat struct {
+	LocationID string `json:"seatLocNo"`
 	Row        string `json:"seatRowNm"`
 	Number     string `json:"seatNo"`
 	KindCode   string `json:"stkndCd"`
@@ -72,6 +74,9 @@ type seatDataSeat struct {
 	ZoneName   string `json:"szoneNm"`
 	ZoneKind   string `json:"szoneKindNm"`
 	SaleForm   string `json:"seatSalfrmCd"`
+	StatusCode string `json:"seatStusCd"`
+	StatusName string `json:"seatStusNm"`
+	SaleYN     string `json:"seatSaleYn"`
 	XStart     string `json:"xcoordStartVal"`
 	YStart     string `json:"ycoordStartVal"`
 	XEnd       string `json:"xcoordEndVal"`
@@ -100,6 +105,7 @@ func parseSeatMapLayout(body []byte, auditoriumID string) (*seatmappb.Layout, er
 			return nil, err
 		}
 	}
+	canonicalizeSeatMapLayout(layout)
 	seats := layout.GetSeats()
 	zones := layout.GetZones()
 	blocks := layout.GetBlocks()
@@ -123,6 +129,59 @@ func parseSeatMapLayout(body []byte, auditoriumID string) (*seatmappb.Layout, er
 		return nil, errors.New("CGV seat map contained no seats")
 	}
 	return layout, nil
+}
+
+// canonicalizeSeatMapLayout matches Central's static-layout normalization
+// before either side computes the deterministic protobuf hash.
+func canonicalizeSeatMapLayout(layout *seatmappb.Layout) {
+	for _, seat := range layout.GetSeats() {
+		if seat == nil {
+			continue
+		}
+		seat.SetAuditoriumId(strings.TrimSpace(seat.GetAuditoriumId()))
+		seat.SetLabel(strings.TrimSpace(seat.GetLabel()))
+		seat.SetRow(strings.TrimSpace(seat.GetRow()))
+		seat.SetType(strings.TrimSpace(seat.GetType()))
+		seat.SetZoneName(strings.TrimSpace(seat.GetZoneName()))
+		seat.SetZoneKind(strings.TrimSpace(seat.GetZoneKind()))
+		seat.SetSaleFormCode(strings.TrimSpace(seat.GetSaleFormCode()))
+		seat.SetSaleFormName(strings.TrimSpace(seat.GetSaleFormName()))
+		seat.SetFeatures(canonicalSeatMapStrings(seat.GetFeatures()))
+		seat.SetSourceLabel(strings.TrimSpace(seat.GetSourceLabel()))
+		seat.SetSourceSeatKindCode(strings.TrimSpace(seat.GetSourceSeatKindCode()))
+		seat.SetSourceSeatKindName(strings.TrimSpace(seat.GetSourceSeatKindName()))
+		seat.SetSourceClasses(canonicalSeatMapStrings(seat.GetSourceClasses()))
+	}
+	for _, zone := range layout.GetZones() {
+		if zone == nil {
+			continue
+		}
+		zone.SetCode(strings.TrimSpace(zone.GetCode()))
+		zone.SetName(strings.TrimSpace(zone.GetName()))
+		zone.SetKindCode(strings.TrimSpace(zone.GetKindCode()))
+		zone.SetKindName(strings.TrimSpace(zone.GetKindName()))
+	}
+	for _, block := range layout.GetBlocks() {
+		if block == nil {
+			continue
+		}
+		block.SetCode(strings.TrimSpace(block.GetCode()))
+		block.SetName(strings.TrimSpace(block.GetName()))
+		block.SetKindCode(strings.TrimSpace(block.GetKindCode()))
+		block.SetKindName(strings.TrimSpace(block.GetKindName()))
+	}
+}
+
+func canonicalSeatMapStrings(values []string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" && !slices.Contains(result, value) {
+			result = append(result, value)
+		}
+	}
+	slices.Sort(result)
+	return result
 }
 
 func appendSeatMapItem(
@@ -158,15 +217,10 @@ func appendSeatMapSeats(
 ) error {
 	start := len(layout.GetSeats())
 	for _, source := range item.Seats {
-		number, err := strconv.ParseInt(strings.TrimSpace(source.Number), 10, 32)
-		if err != nil || number < 1 {
-			return fmt.Errorf("parse seat %s%s number", source.Row, source.Number)
+		label, row, number, err := normalizedSeatLabel(source)
+		if err != nil {
+			return err
 		}
-		row := strings.ToUpper(strings.TrimSpace(source.Row))
-		if row == "" {
-			return errors.New("CGV seat map contains an empty seat row")
-		}
-		label := row + strconv.FormatInt(number, 10)
 		if _, duplicate := labels[label]; duplicate {
 			return fmt.Errorf("duplicate CGV seat label %s", label)
 		}
@@ -185,7 +239,11 @@ func appendSeatMapSeats(
 		seat.SetAuditoriumId(auditoriumID)
 		seat.SetLabel(label)
 		seat.SetRow(row)
-		seat.SetNumber(int32(number))
+		seatNumber, err := seatNumberAsInt32(number)
+		if err != nil {
+			return fmt.Errorf("parse CGV seat %s number: %w", label, err)
+		}
+		seat.SetNumber(seatNumber)
 		seat.SetX(x)
 		seat.SetY(y)
 		seat.SetType(seatMapSeatType(source.KindName, saleFormName))
@@ -205,6 +263,25 @@ func appendSeatMapSeats(
 		return fmt.Errorf("CGV board count %d differs from parsed seat count", item.Board.Count)
 	}
 	return nil
+}
+
+func seatNumberAsInt32(value int64) (int32, error) {
+	if value < 1 || value > math.MaxInt32 {
+		return 0, errors.New("seat number is outside int32 range")
+	}
+	return int32(value), nil //nolint:gosec // the explicit range check bounds the conversion
+}
+
+func normalizedSeatLabel(source seatDataSeat) (string, string, int64, error) {
+	number, err := strconv.ParseInt(strings.TrimSpace(source.Number), 10, 32)
+	if err != nil || number < 1 {
+		return "", "", 0, fmt.Errorf("parse seat %s%s number", source.Row, source.Number)
+	}
+	row := strings.ToUpper(strings.TrimSpace(source.Row))
+	if row == "" {
+		return "", "", 0, errors.New("CGV seat map contains an empty seat row")
+	}
+	return row + strconv.FormatInt(number, 10), row, number, nil
 }
 
 func appendSeatMapZones(

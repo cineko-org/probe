@@ -68,6 +68,14 @@ func TestGeneratedProtoCGVExecutorBoundaries(t *testing.T) {
 	}, time.UTC); err == nil {
 		t.Fatal("available seats outside int32 accepted")
 	}
+	providerDateFormat := canonicalTestShowtime(cgv.ScheduleShowtime{
+		Date: "20260820", StartsAt: "10:00", EndsAt: "11:00", AvailableSeats: 1, Capacity: 2,
+	})
+	if _, err := executor.convertCapture(cgv.ScheduleCapture{
+		TargetDate: "2026-08-20", Showtimes: []cgv.ScheduleShowtime{providerDateFormat},
+	}, time.UTC); err == nil {
+		t.Fatal("provider-only showtime date format was accepted as a contract date")
+	}
 	if _, err := localDate("invalid"); err == nil {
 		t.Fatal("invalid local date accepted")
 	}
@@ -87,6 +95,9 @@ func TestGeneratedProtoRuntimeBoundaries(t *testing.T) {
 	if err := runtime.captureAssignment(context.Background(), nil).err; err == nil {
 		t.Fatal("nil assignment accepted")
 	}
+	if err := runtime.captureAssignment(context.Background(), seatAvailabilityAssignmentTaskForProbe()).err; err == nil {
+		t.Fatal("seat-availability assignment accepted without executor support")
+	}
 	if resultOutcome(&observationpb.AssignmentResult{}) != "failed" {
 		t.Fatal("result without outcome was not failed")
 	}
@@ -97,6 +108,11 @@ func TestGeneratedProtoRuntimeBoundaries(t *testing.T) {
 	catalogCapability.SetCatalogCapture(&observationpb.CatalogCapture{})
 	if capabilityKey(catalogCapability) != "cgv.catalog.capture" {
 		t.Fatal("catalog capability key was not canonical")
+	}
+	availabilityCapability := &observationpb.Capability{}
+	availabilityCapability.SetSeatAvailabilityCapture(&observationpb.SeatAvailabilityCapture{})
+	if capabilityKey(availabilityCapability) != "cgv.seat-availability.capture" {
+		t.Fatal("seat-availability capability key was not canonical")
 	}
 	if capabilityKey(&observationpb.Capability{}) != "" {
 		t.Fatal("empty capability key was not empty")

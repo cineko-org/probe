@@ -14,13 +14,14 @@ import (
 // Client-embedded Probe. Credentials remain supplied by the caller so a Client
 // can use a short-lived bootstrap pipe without persisting it.
 type BrowserRuntimeConfig struct {
-	CentralURL      string
-	DataDir         string
-	HTTPClient      *http.Client
-	Credentials     CredentialSource
-	Registration    *probepb.RegisterRequest
-	SeatMapExecutor SeatMapExecutor
-	Runtime         Config
+	CentralURL               string
+	DataDir                  string
+	HTTPClient               *http.Client
+	Credentials              CredentialSource
+	Registration             *probepb.RegisterRequest
+	SeatMapExecutor          SeatMapExecutor
+	SeatAvailabilityExecutor SeatAvailabilityExecutor
+	Runtime                  Config
 }
 
 // BrowserRuntime owns the exact browser factory, CGV executor, and Probe loop
@@ -61,6 +62,7 @@ func newBrowserRuntime(config BrowserRuntimeConfig, factories browserRuntimeFact
 		return nil, err
 	}
 	executor.seatMap = config.SeatMapExecutor
+	executor.seatAvailability = config.SeatAvailabilityExecutor
 	config.Runtime.Registration = config.Registration
 	runtime, err := NewRuntime(api, config.Credentials, executor, config.Runtime)
 	if err != nil {

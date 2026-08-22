@@ -15,6 +15,9 @@ func TestGeneratedProtoCapabilityBoundaries(t *testing.T) {
 	for _, set := range []func(*observationpb.Capability){
 		func(value *observationpb.Capability) { value.SetCatalogCapture(&observationpb.CatalogCapture{}) },
 		func(value *observationpb.Capability) { value.SetSeatMapCapture(&observationpb.SeatMapCapture{}) },
+		func(value *observationpb.Capability) {
+			value.SetSeatAvailabilityCapture(&observationpb.SeatAvailabilityCapture{})
+		},
 	} {
 		capability := &observationpb.Capability{}
 		set(capability)
@@ -23,7 +26,7 @@ func TestGeneratedProtoCapabilityBoundaries(t *testing.T) {
 	request := &probepb.RegisterRequest{}
 	request.SetCapabilities(capabilities)
 	keys, err := capabilityKeys(request)
-	if err != nil || len(keys) != 2 {
+	if err != nil || len(keys) != 3 {
 		t.Fatalf("non-schedule capability keys = %v, %v", keys, err)
 	}
 	duplicate := &observationpb.Capability{}

@@ -7,6 +7,8 @@
 package catalog
 
 import (
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
+	common "github.com/cineko-org/contracts/gen/go/cineko/common"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -814,11 +816,12 @@ type Showtime struct {
 	xxx_hidden_TheaterId      *string                `protobuf:"bytes,4,opt,name=theater_id,json=theaterId"`
 	xxx_hidden_Movie          *Movie                 `protobuf:"bytes,5,opt,name=movie"`
 	xxx_hidden_Auditorium     *Auditorium            `protobuf:"bytes,6,opt,name=auditorium"`
-	xxx_hidden_StartsAt       *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=starts_at,json=startsAt"`
-	xxx_hidden_EndsAt         *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=ends_at,json=endsAt"`
-	xxx_hidden_AvailableSeats int32                  `protobuf:"varint,9,opt,name=available_seats,json=availableSeats"`
-	xxx_hidden_Capacity       int32                  `protobuf:"varint,10,opt,name=capacity"`
-	xxx_hidden_SoldOut        bool                   `protobuf:"varint,11,opt,name=sold_out,json=soldOut"`
+	xxx_hidden_ScheduleDate   *common.LocalDate      `protobuf:"bytes,7,opt,name=schedule_date,json=scheduleDate"`
+	xxx_hidden_StartsAt       *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=starts_at,json=startsAt"`
+	xxx_hidden_EndsAt         *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=ends_at,json=endsAt"`
+	xxx_hidden_AvailableSeats int32                  `protobuf:"varint,10,opt,name=available_seats,json=availableSeats"`
+	xxx_hidden_Capacity       int32                  `protobuf:"varint,11,opt,name=capacity"`
+	xxx_hidden_SoldOut        bool                   `protobuf:"varint,12,opt,name=sold_out,json=soldOut"`
 	XXX_raceDetectHookData    protoimpl.RaceDetectHookData
 	XXX_presence              [1]uint32
 	unknownFields             protoimpl.UnknownFields
@@ -904,6 +907,13 @@ func (x *Showtime) GetAuditorium() *Auditorium {
 	return nil
 }
 
+func (x *Showtime) GetScheduleDate() *common.LocalDate {
+	if x != nil {
+		return x.xxx_hidden_ScheduleDate
+	}
+	return nil
+}
+
 func (x *Showtime) GetStartsAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.xxx_hidden_StartsAt
@@ -941,22 +951,22 @@ func (x *Showtime) GetSoldOut() bool {
 
 func (x *Showtime) SetId(v string) {
 	x.xxx_hidden_Id = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 11)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 12)
 }
 
 func (x *Showtime) SetProviderId(v string) {
 	x.xxx_hidden_ProviderId = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 11)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 12)
 }
 
 func (x *Showtime) SetSourceKey(v string) {
 	x.xxx_hidden_SourceKey = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 11)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 12)
 }
 
 func (x *Showtime) SetTheaterId(v string) {
 	x.xxx_hidden_TheaterId = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 11)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 12)
 }
 
 func (x *Showtime) SetMovie(v *Movie) {
@@ -965,6 +975,10 @@ func (x *Showtime) SetMovie(v *Movie) {
 
 func (x *Showtime) SetAuditorium(v *Auditorium) {
 	x.xxx_hidden_Auditorium = v
+}
+
+func (x *Showtime) SetScheduleDate(v *common.LocalDate) {
+	x.xxx_hidden_ScheduleDate = v
 }
 
 func (x *Showtime) SetStartsAt(v *timestamppb.Timestamp) {
@@ -977,17 +991,17 @@ func (x *Showtime) SetEndsAt(v *timestamppb.Timestamp) {
 
 func (x *Showtime) SetAvailableSeats(v int32) {
 	x.xxx_hidden_AvailableSeats = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 8, 11)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 9, 12)
 }
 
 func (x *Showtime) SetCapacity(v int32) {
 	x.xxx_hidden_Capacity = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 9, 11)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 10, 12)
 }
 
 func (x *Showtime) SetSoldOut(v bool) {
 	x.xxx_hidden_SoldOut = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 10, 11)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 11, 12)
 }
 
 func (x *Showtime) HasId() bool {
@@ -1032,6 +1046,13 @@ func (x *Showtime) HasAuditorium() bool {
 	return x.xxx_hidden_Auditorium != nil
 }
 
+func (x *Showtime) HasScheduleDate() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_ScheduleDate != nil
+}
+
 func (x *Showtime) HasStartsAt() bool {
 	if x == nil {
 		return false
@@ -1050,21 +1071,21 @@ func (x *Showtime) HasAvailableSeats() bool {
 	if x == nil {
 		return false
 	}
-	return protoimpl.X.Present(&(x.XXX_presence[0]), 8)
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 9)
 }
 
 func (x *Showtime) HasCapacity() bool {
 	if x == nil {
 		return false
 	}
-	return protoimpl.X.Present(&(x.XXX_presence[0]), 9)
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 10)
 }
 
 func (x *Showtime) HasSoldOut() bool {
 	if x == nil {
 		return false
 	}
-	return protoimpl.X.Present(&(x.XXX_presence[0]), 10)
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 11)
 }
 
 func (x *Showtime) ClearId() {
@@ -1095,6 +1116,10 @@ func (x *Showtime) ClearAuditorium() {
 	x.xxx_hidden_Auditorium = nil
 }
 
+func (x *Showtime) ClearScheduleDate() {
+	x.xxx_hidden_ScheduleDate = nil
+}
+
 func (x *Showtime) ClearStartsAt() {
 	x.xxx_hidden_StartsAt = nil
 }
@@ -1104,17 +1129,17 @@ func (x *Showtime) ClearEndsAt() {
 }
 
 func (x *Showtime) ClearAvailableSeats() {
-	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 8)
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 9)
 	x.xxx_hidden_AvailableSeats = 0
 }
 
 func (x *Showtime) ClearCapacity() {
-	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 9)
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 10)
 	x.xxx_hidden_Capacity = 0
 }
 
 func (x *Showtime) ClearSoldOut() {
-	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 10)
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 11)
 	x.xxx_hidden_SoldOut = false
 }
 
@@ -1127,6 +1152,7 @@ type Showtime_builder struct {
 	TheaterId      *string
 	Movie          *Movie
 	Auditorium     *Auditorium
+	ScheduleDate   *common.LocalDate
 	StartsAt       *timestamppb.Timestamp
 	EndsAt         *timestamppb.Timestamp
 	AvailableSeats *int32
@@ -1139,35 +1165,36 @@ func (b0 Showtime_builder) Build() *Showtime {
 	b, x := &b0, m0
 	_, _ = b, x
 	if b.Id != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 11)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 12)
 		x.xxx_hidden_Id = b.Id
 	}
 	if b.ProviderId != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 11)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 12)
 		x.xxx_hidden_ProviderId = b.ProviderId
 	}
 	if b.SourceKey != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 11)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 12)
 		x.xxx_hidden_SourceKey = b.SourceKey
 	}
 	if b.TheaterId != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 11)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 12)
 		x.xxx_hidden_TheaterId = b.TheaterId
 	}
 	x.xxx_hidden_Movie = b.Movie
 	x.xxx_hidden_Auditorium = b.Auditorium
+	x.xxx_hidden_ScheduleDate = b.ScheduleDate
 	x.xxx_hidden_StartsAt = b.StartsAt
 	x.xxx_hidden_EndsAt = b.EndsAt
 	if b.AvailableSeats != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 8, 11)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 9, 12)
 		x.xxx_hidden_AvailableSeats = *b.AvailableSeats
 	}
 	if b.Capacity != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 9, 11)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 10, 12)
 		x.xxx_hidden_Capacity = *b.Capacity
 	}
 	if b.SoldOut != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 10, 11)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 11, 12)
 		x.xxx_hidden_SoldOut = *b.SoldOut
 	}
 	return m0
@@ -1489,7 +1516,7 @@ var File_cineko_catalog_catalog_proto protoreflect.FileDescriptor
 
 const file_cineko_catalog_catalog_proto_rawDesc = "" +
 	"\n" +
-	"\x1ccineko/catalog/catalog.proto\x12\x0ecineko.catalog\x1a\x1fgoogle/protobuf/timestamp.proto\".\n" +
+	"\x1ccineko/catalog/catalog.proto\x12\x0ecineko.catalog\x1a\x1bbuf/validate/validate.proto\x1a\x1acineko/common/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\".\n" +
 	"\bProvider\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\"\x85\x01\n" +
@@ -1520,7 +1547,7 @@ const file_cineko_catalog_catalog_proto_rawDesc = "" +
 	"\x04name\x18\x04 \x01(\tR\x04name\x12!\n" +
 	"\fscreen_types\x18\x05 \x03(\tR\vscreenTypes\x12\x1a\n" +
 	"\bcapacity\x18\x06 \x01(\x05R\bcapacity\x12.\n" +
-	"\x13current_layout_hash\x18\a \x01(\tR\x11currentLayoutHash\"\xb0\x03\n" +
+	"\x13current_layout_hash\x18\a \x01(\tR\x11currentLayoutHash\"\x87\x04\n" +
 	"\bShowtime\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1f\n" +
 	"\vprovider_id\x18\x02 \x01(\tR\n" +
@@ -1532,13 +1559,14 @@ const file_cineko_catalog_catalog_proto_rawDesc = "" +
 	"\x05movie\x18\x05 \x01(\v2\x15.cineko.catalog.MovieR\x05movie\x12:\n" +
 	"\n" +
 	"auditorium\x18\x06 \x01(\v2\x1a.cineko.catalog.AuditoriumR\n" +
-	"auditorium\x127\n" +
-	"\tstarts_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\bstartsAt\x123\n" +
-	"\aends_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\x06endsAt\x12'\n" +
-	"\x0favailable_seats\x18\t \x01(\x05R\x0eavailableSeats\x12\x1a\n" +
-	"\bcapacity\x18\n" +
-	" \x01(\x05R\bcapacity\x12\x19\n" +
-	"\bsold_out\x18\v \x01(\bR\asoldOut\"\xde\x02\n" +
+	"auditorium\x12E\n" +
+	"\rschedule_date\x18\a \x01(\v2\x18.cineko.common.LocalDateB\x06\xbaH\x03\xc8\x01\x01R\fscheduleDate\x12?\n" +
+	"\tstarts_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampB\x06\xbaH\x03\xc8\x01\x01R\bstartsAt\x12;\n" +
+	"\aends_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampB\x06\xbaH\x03\xc8\x01\x01R\x06endsAt\x12'\n" +
+	"\x0favailable_seats\x18\n" +
+	" \x01(\x05R\x0eavailableSeats\x12\x1a\n" +
+	"\bcapacity\x18\v \x01(\x05R\bcapacity\x12\x19\n" +
+	"\bsold_out\x18\f \x01(\bR\asoldOut\"\xde\x02\n" +
 	"\x0fCatalogSnapshot\x124\n" +
 	"\bprovider\x18\x01 \x01(\v2\x18.cineko.catalog.ProviderR\bprovider\x123\n" +
 	"\btheaters\x18\x02 \x03(\v2\x17.cineko.catalog.TheaterR\btheaters\x12-\n" +
@@ -1566,29 +1594,31 @@ var file_cineko_catalog_catalog_proto_goTypes = []any{
 	(*Showtime)(nil),              // 4: cineko.catalog.Showtime
 	(*CatalogSnapshot)(nil),       // 5: cineko.catalog.CatalogSnapshot
 	(*CatalogIndex)(nil),          // 6: cineko.catalog.CatalogIndex
-	(*timestamppb.Timestamp)(nil), // 7: google.protobuf.Timestamp
+	(*common.LocalDate)(nil),      // 7: cineko.common.LocalDate
+	(*timestamppb.Timestamp)(nil), // 8: google.protobuf.Timestamp
 }
 var file_cineko_catalog_catalog_proto_depIdxs = []int32{
 	2,  // 0: cineko.catalog.Showtime.movie:type_name -> cineko.catalog.Movie
 	3,  // 1: cineko.catalog.Showtime.auditorium:type_name -> cineko.catalog.Auditorium
-	7,  // 2: cineko.catalog.Showtime.starts_at:type_name -> google.protobuf.Timestamp
-	7,  // 3: cineko.catalog.Showtime.ends_at:type_name -> google.protobuf.Timestamp
-	0,  // 4: cineko.catalog.CatalogSnapshot.provider:type_name -> cineko.catalog.Provider
-	1,  // 5: cineko.catalog.CatalogSnapshot.theaters:type_name -> cineko.catalog.Theater
-	2,  // 6: cineko.catalog.CatalogSnapshot.movies:type_name -> cineko.catalog.Movie
-	3,  // 7: cineko.catalog.CatalogSnapshot.auditoriums:type_name -> cineko.catalog.Auditorium
-	4,  // 8: cineko.catalog.CatalogSnapshot.showtimes:type_name -> cineko.catalog.Showtime
-	7,  // 9: cineko.catalog.CatalogSnapshot.observed_at:type_name -> google.protobuf.Timestamp
-	0,  // 10: cineko.catalog.CatalogIndex.providers:type_name -> cineko.catalog.Provider
-	1,  // 11: cineko.catalog.CatalogIndex.theaters:type_name -> cineko.catalog.Theater
-	2,  // 12: cineko.catalog.CatalogIndex.movies:type_name -> cineko.catalog.Movie
-	3,  // 13: cineko.catalog.CatalogIndex.auditoriums:type_name -> cineko.catalog.Auditorium
-	4,  // 14: cineko.catalog.CatalogIndex.showtimes:type_name -> cineko.catalog.Showtime
-	15, // [15:15] is the sub-list for method output_type
-	15, // [15:15] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	7,  // 2: cineko.catalog.Showtime.schedule_date:type_name -> cineko.common.LocalDate
+	8,  // 3: cineko.catalog.Showtime.starts_at:type_name -> google.protobuf.Timestamp
+	8,  // 4: cineko.catalog.Showtime.ends_at:type_name -> google.protobuf.Timestamp
+	0,  // 5: cineko.catalog.CatalogSnapshot.provider:type_name -> cineko.catalog.Provider
+	1,  // 6: cineko.catalog.CatalogSnapshot.theaters:type_name -> cineko.catalog.Theater
+	2,  // 7: cineko.catalog.CatalogSnapshot.movies:type_name -> cineko.catalog.Movie
+	3,  // 8: cineko.catalog.CatalogSnapshot.auditoriums:type_name -> cineko.catalog.Auditorium
+	4,  // 9: cineko.catalog.CatalogSnapshot.showtimes:type_name -> cineko.catalog.Showtime
+	8,  // 10: cineko.catalog.CatalogSnapshot.observed_at:type_name -> google.protobuf.Timestamp
+	0,  // 11: cineko.catalog.CatalogIndex.providers:type_name -> cineko.catalog.Provider
+	1,  // 12: cineko.catalog.CatalogIndex.theaters:type_name -> cineko.catalog.Theater
+	2,  // 13: cineko.catalog.CatalogIndex.movies:type_name -> cineko.catalog.Movie
+	3,  // 14: cineko.catalog.CatalogIndex.auditoriums:type_name -> cineko.catalog.Auditorium
+	4,  // 15: cineko.catalog.CatalogIndex.showtimes:type_name -> cineko.catalog.Showtime
+	16, // [16:16] is the sub-list for method output_type
+	16, // [16:16] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_cineko_catalog_catalog_proto_init() }

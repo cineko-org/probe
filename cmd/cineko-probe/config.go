@@ -53,7 +53,7 @@ func loadConfig(stdin io.Reader) (applicationConfig, error) {
 		capabilityCatalogCapture(), capabilityScheduleCapture(),
 	}
 	if mode == "container" {
-		capabilities = append(capabilities, capabilitySeatMapCapture())
+		capabilities = append(capabilities, capabilitySeatMapCapture(), capabilitySeatAvailabilityCapture())
 	}
 	registration := &probepb.RegisterRequest{}
 	registration.SetInstallationId(installationID)
@@ -133,6 +133,12 @@ func capabilityCatalogCapture() *observationpb.Capability {
 func capabilitySeatMapCapture() *observationpb.Capability {
 	capability := &observationpb.Capability{}
 	capability.SetSeatMapCapture(&observationpb.SeatMapCapture{})
+	return capability
+}
+
+func capabilitySeatAvailabilityCapture() *observationpb.Capability {
+	capability := &observationpb.Capability{}
+	capability.SetSeatAvailabilityCapture(&observationpb.SeatAvailabilityCapture{})
 	return capability
 }
 

@@ -348,6 +348,7 @@ func TestRuntimeStateConfigurationAndHelpers(t *testing.T) {
 	if resultOutcome(resultForOutput(executionOutput{})) != "failed" ||
 		resultOutcome(resultForOutput(executionOutput{catalog: &catalogpb.CatalogSnapshot{}})) != "succeeded" ||
 		resultOutcome(resultForOutput(executionOutput{seatMap: &seatmappb.Snapshot{}})) != "succeeded" ||
+		resultOutcome(resultForOutput(executionOutput{seatAvailability: validAvailabilitySnapshot()})) != "succeeded" ||
 		resultOutcome(resultForOutput(executionOutput{captures: []*observationpb.Capture{capture(true), capture(false)}})) != "degraded" ||
 		resultOutcome(resultForOutput(executionOutput{captures: []*observationpb.Capture{capture(false)}})) != "failed" ||
 		resultOutcome(resultForOutput(executionOutput{captures: []*observationpb.Capture{capture(true)}})) != "succeeded" {
@@ -744,6 +745,7 @@ func resultForOutput(output executionOutput) *observationpb.AssignmentResult {
 	completed.SetCaptures(output.captures)
 	completed.SetCatalog(output.catalog)
 	completed.SetSeatMap(output.seatMap)
+	completed.SetSeatAvailability(output.seatAvailability)
 	result.SetCompleted(completed)
 	return result
 }

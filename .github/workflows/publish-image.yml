@@ -135,6 +135,10 @@ jobs:
             "$IMAGE_DIGEST" \
             "$PUBLISHED_AT")"
           curl --fail-with-body --silent --show-error \
+            --retry 5 \
+            --retry-all-errors \
+            --retry-delay 2 \
+            --retry-max-time 60 \
             --request POST \
             --header "Authorization: Bearer ${RELEASE_PUBLISH_TOKEN}" \
             --header "Content-Type: application/json" \
