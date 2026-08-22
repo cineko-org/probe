@@ -35,9 +35,55 @@ func parseTheaterCatalogResponse(payload []byte) ([]providerTheaterRow, error) {
 	if len(envelope.Data) == 0 || bytes.Equal(bytes.TrimSpace(envelope.Data), []byte("null")) {
 		return nil, fmt.Errorf("CGV theater response data is missing")
 	}
+	var data struct {
+		Regions json.RawMessage `json:"regionInfo"`
+		Sites   json.RawMessage `json:"siteInfo"`
+	}
+	if err := json.Unmarshal(envelope.Data, &data); err != nil {
+		return nil, fmt.Errorf("decode CGV theater data: %w", err)
+	}
+	regions, err := decodeTheaterRegions(data.Regions)
+	if err != nil {
+		return nil, err
+	}
+	return decodeTheaterSites(data.Sites, regions)
+}
+
+// decodeTheaterRegions builds the provider region-code lookup required by each site row.
+func decodeTheaterRegions(payload json.RawMessage) (map[string]string, error) {
+	var rawRegions []map[string]json.RawMessage
+	if len(payload) == 0 || bytes.Equal(bytes.TrimSpace(payload), []byte("null")) {
+		return nil, fmt.Errorf("CGV theater regions are missing")
+	}
+	if err := json.Unmarshal(payload, &rawRegions); err != nil {
+		return nil, fmt.Errorf("decode CGV theater regions: %w", err)
+	}
+	regions := make(map[string]string, len(rawRegions))
+	for index, rawRegion := range rawRegions {
+		code, err := requiredString(rawRegion, "comCdval")
+		if err != nil {
+			return nil, fmt.Errorf("CGV theater region %d: %w", index, err)
+		}
+		name, err := requiredString(rawRegion, "comCdvalNm")
+		if err != nil {
+			return nil, fmt.Errorf("CGV theater region %d: %w", index, err)
+		}
+		if previous, exists := regions[code]; exists && previous != name {
+			return nil, fmt.Errorf("CGV theater region %q has conflicting names", code)
+		}
+		regions[code] = name
+	}
+	return regions, nil
+}
+
+// decodeTheaterSites resolves each site row to the provider's region display name.
+func decodeTheaterSites(payload json.RawMessage, regions map[string]string) ([]providerTheaterRow, error) {
 	var rawRows []map[string]json.RawMessage
-	if err := json.Unmarshal(envelope.Data, &rawRows); err != nil {
-		return nil, fmt.Errorf("decode CGV theater rows: %w", err)
+	if len(payload) == 0 || bytes.Equal(bytes.TrimSpace(payload), []byte("null")) {
+		return nil, fmt.Errorf("CGV theater sites are missing")
+	}
+	if err := json.Unmarshal(payload, &rawRows); err != nil {
+		return nil, fmt.Errorf("decode CGV theater sites: %w", err)
 	}
 	rows := make([]providerTheaterRow, 0, len(rawRows))
 	for index, rawRow := range rawRows {
@@ -49,9 +95,17 @@ func parseTheaterCatalogResponse(payload []byte) ([]providerTheaterRow, error) {
 		if err != nil {
 			return nil, fmt.Errorf("CGV theater row %d: %w", index, err)
 		}
+		regionCode, err := requiredString(rawRow, "regnGrpCd")
+		if err != nil {
+			return nil, fmt.Errorf("CGV theater row %d: %w", index, err)
+		}
+		region, exists := regions[regionCode]
+		if !exists {
+			return nil, fmt.Errorf("CGV theater row %d: unknown region %q", index, regionCode)
+		}
 		rows = append(rows, providerTheaterRow{
 			SiteNo: siteNo, SiteName: siteName,
-			Region: optionalProviderString(rawRow, "regnGrpNm"),
+			Region: region,
 		})
 	}
 	return rows, nil

@@ -219,7 +219,7 @@ func (adapter *Adapter) extractSchedules(
 
 func scheduleEntryFromProviderRow(row providerScheduleRow, theater ScheduleTheater) (scheduleEntry, error) {
 	theaterSiteNo := strings.TrimSpace(theater.SourceKey)
-	if theater.ProviderID != ProviderCGV || !numericIdentifier(theaterSiteNo) ||
+	if theater.ProviderID != ProviderCGV || !providerSiteIdentifier(theaterSiteNo) ||
 		theater.ID != CatalogID(ProviderCGV, "theater", theaterSiteNo) {
 		return scheduleEntry{}, fmt.Errorf("%w: CGV theater identity is not canonical", ErrIdentityMismatch)
 	}
