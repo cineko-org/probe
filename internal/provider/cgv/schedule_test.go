@@ -160,6 +160,38 @@ func TestScheduleDateMismatchFailsClosed(t *testing.T) {
 	}
 }
 
+func TestScheduleCaptureFiltersLinkedVenueRows(t *testing.T) {
+	t.Parallel()
+	payload := strings.Replace(
+		scheduleResponseFixture("20260812"),
+		`]}`,
+		`,{"siteNo":"P013","siteNm":"씨네드쉐프 용산","movNo":"00005678","scnsNo":"0002","scnsNm":"템퍼 시네마","scnYmd":"20260812","scnSseq":"0004","scnsrtTm":"1100","scnendTm":"1300","frSeatCnt":"8","stcnt":"40"}]}`,
+		1,
+	)
+	adapter := &Adapter{providerResponses: []capturedProviderResponse{{
+		path: scheduleResponsePath, status: 200, body: []byte(payload),
+	}}}
+	entries, err := adapter.extractSchedules("2026-08-12", testScheduleTheater())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Showtime.ProviderID != ProviderCGV ||
+		entries[0].Showtime.TheaterID != testScheduleTheater().ID {
+		t.Fatalf("target theater entries = %+v", entries)
+	}
+}
+
+func TestScheduleCaptureRejectsOnlyLinkedVenueRows(t *testing.T) {
+	t.Parallel()
+	payload := strings.Replace(scheduleResponseFixture("20260812"), `"siteNo":"0056"`, `"siteNo":"P013"`, 1)
+	adapter := &Adapter{providerResponses: []capturedProviderResponse{{
+		path: scheduleResponsePath, status: 200, body: []byte(payload),
+	}}}
+	if _, err := adapter.extractSchedules("2026-08-12", testScheduleTheater()); !errors.Is(err, ErrIdentityMismatch) {
+		t.Fatalf("linked-only response error = %v", err)
+	}
+}
+
 func TestScheduleDateNormalizesBeforeCapture(t *testing.T) {
 	for _, input := range []string{"20260812", "2026-08-12"} {
 		canonical, err := canonicalProviderDate(input)
