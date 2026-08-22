@@ -239,7 +239,11 @@ func appendSeatMapSeats(
 		seat.SetAuditoriumId(auditoriumID)
 		seat.SetLabel(label)
 		seat.SetRow(row)
-		seat.SetNumber(int32(number))
+		seatNumber, err := seatNumberAsInt32(number)
+		if err != nil {
+			return fmt.Errorf("parse CGV seat %s number: %w", label, err)
+		}
+		seat.SetNumber(seatNumber)
 		seat.SetX(x)
 		seat.SetY(y)
 		seat.SetType(seatMapSeatType(source.KindName, saleFormName))
@@ -259,6 +263,13 @@ func appendSeatMapSeats(
 		return fmt.Errorf("CGV board count %d differs from parsed seat count", item.Board.Count)
 	}
 	return nil
+}
+
+func seatNumberAsInt32(value int64) (int32, error) {
+	if value < 1 || value > math.MaxInt32 {
+		return 0, errors.New("seat number is outside int32 range")
+	}
+	return int32(value), nil //nolint:gosec // the explicit range check bounds the conversion
 }
 
 func normalizedSeatLabel(source seatDataSeat) (string, string, int64, error) {

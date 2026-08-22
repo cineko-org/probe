@@ -350,27 +350,37 @@ func firstBookableSeatMapShowtime(entries []scheduleEntry, auditoriumID string) 
 }
 
 func validateSeatMapShowtime(showtime *catalogpb.Showtime) error {
-	if showtime == nil {
-		return errors.New("seat-map showtime identity is not canonical")
-	}
-	movie := showtime.GetMovie()
-	auditorium := showtime.GetAuditorium()
-	if showtime.GetProviderId() != ProviderCGV || strings.TrimSpace(showtime.GetSourceKey()) == "" ||
-		showtime.GetId() != CatalogID(ProviderCGV, "showtime", showtime.GetSourceKey()) ||
-		strings.TrimSpace(showtime.GetTheaterId()) == "" || movie == nil || movie.GetProviderId() != ProviderCGV ||
-		strings.TrimSpace(movie.GetSourceKey()) == "" || strings.TrimSpace(movie.GetTitle()) == "" ||
-		movie.GetId() != CatalogID(ProviderCGV, "movie", movie.GetSourceKey()) || auditorium == nil ||
-		strings.TrimSpace(auditorium.GetSourceKey()) == "" || strings.TrimSpace(auditorium.GetName()) == "" ||
-		auditorium.GetId() != CatalogID(ProviderCGV, "auditorium", auditorium.GetSourceKey()) ||
-		auditorium.GetTheaterId() != showtime.GetTheaterId() || showtime.GetScheduleDate() == nil ||
-		showtime.GetStartsAt() == nil || showtime.GetEndsAt() == nil || showtime.GetStartsAt().CheckValid() != nil ||
-		showtime.GetEndsAt().CheckValid() != nil || !showtime.GetEndsAt().AsTime().After(showtime.GetStartsAt().AsTime()) {
+	if !validSeatMapShowtimeIdentity(showtime) || !validSeatMapMovieIdentity(showtime.GetMovie()) ||
+		!validSeatMapShowtimeAuditorium(showtime) || !validSeatMapShowtimeWindow(showtime) {
 		return errors.New("seat-map showtime identity is not canonical")
 	}
 	if _, err := seatMapTargetDate(showtime.GetScheduleDate()); err != nil {
 		return fmt.Errorf("seat-map showtime schedule date: %w", err)
 	}
 	return nil
+}
+
+func validSeatMapShowtimeIdentity(showtime *catalogpb.Showtime) bool {
+	return showtime != nil && showtime.GetProviderId() == ProviderCGV && strings.TrimSpace(showtime.GetSourceKey()) != "" &&
+		showtime.GetId() == CatalogID(ProviderCGV, "showtime", showtime.GetSourceKey()) && strings.TrimSpace(showtime.GetTheaterId()) != ""
+}
+
+func validSeatMapMovieIdentity(movie *catalogpb.Movie) bool {
+	return movie != nil && movie.GetProviderId() == ProviderCGV && strings.TrimSpace(movie.GetSourceKey()) != "" &&
+		strings.TrimSpace(movie.GetTitle()) != "" && movie.GetId() == CatalogID(ProviderCGV, "movie", movie.GetSourceKey())
+}
+
+func validSeatMapShowtimeAuditorium(showtime *catalogpb.Showtime) bool {
+	auditorium := showtime.GetAuditorium()
+	return auditorium != nil && strings.TrimSpace(auditorium.GetSourceKey()) != "" && strings.TrimSpace(auditorium.GetName()) != "" &&
+		auditorium.GetId() == CatalogID(ProviderCGV, "auditorium", auditorium.GetSourceKey()) &&
+		auditorium.GetTheaterId() == showtime.GetTheaterId()
+}
+
+func validSeatMapShowtimeWindow(showtime *catalogpb.Showtime) bool {
+	startsAt, endsAt := showtime.GetStartsAt(), showtime.GetEndsAt()
+	return showtime.GetScheduleDate() != nil && startsAt != nil && endsAt != nil && startsAt.CheckValid() == nil &&
+		endsAt.CheckValid() == nil && endsAt.AsTime().After(startsAt.AsTime())
 }
 
 func exactSeatMapShowtime(entries []scheduleEntry, command *catalogpb.Showtime) (ScheduleShowtime, error) {

@@ -102,11 +102,11 @@ func TestSeatAvailabilityTaskRequiresOneExactShowtime(t *testing.T) {
 	}
 }
 
-func localDateForAvailability(year, month, day int) *commonpb.LocalDate {
+func localDateForAvailability(year, month, day int32) *commonpb.LocalDate {
 	date := &commonpb.LocalDate{}
-	date.SetYear(int32(year))
-	date.SetMonth(int32(month))
-	date.SetDay(int32(day))
+	date.SetYear(year)
+	date.SetMonth(month)
+	date.SetDay(day)
 	return date
 }
 

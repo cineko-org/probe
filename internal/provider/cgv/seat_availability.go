@@ -34,6 +34,14 @@ func parseSeatAvailability(body []byte, auditoriumID string, layout *seatmappb.L
 		return nil, fmt.Errorf("%w: provider returned no seat areas", ErrSeatAvailabilityIncomplete)
 	}
 
+	layoutSeats, err := seatAvailabilityLayoutIndex(layout)
+	if err != nil {
+		return nil, err
+	}
+	return providerAvailableSeats(envelope.Data.Items, auditoriumID, layoutSeats)
+}
+
+func seatAvailabilityLayoutIndex(layout *seatmappb.Layout) (map[string]struct{}, error) {
 	layoutSeats := make(map[string]struct{}, len(layout.GetSeats()))
 	for _, seat := range layout.GetSeats() {
 		if seat == nil || strings.TrimSpace(seat.GetId()) == "" {
@@ -41,13 +49,17 @@ func parseSeatAvailability(body []byte, auditoriumID string, layout *seatmappb.L
 		}
 		layoutSeats[seat.GetId()] = struct{}{}
 	}
+	return layoutSeats, nil
+}
+
+func providerAvailableSeats(items []seatDataItem, auditoriumID string, layoutSeats map[string]struct{}) ([]string, error) {
 	seen := make(map[string]struct{}, len(layoutSeats))
 	available := make([]string, 0, len(layoutSeats))
-	for _, item := range envelope.Data.Items {
+	for _, item := range items {
 		for _, source := range item.Seats {
 			label, _, _, err := normalizedSeatLabel(source)
 			if err != nil {
-				return nil, fmt.Errorf("%w: %v", ErrSeatAvailabilityIncomplete, err)
+				return nil, fmt.Errorf("%w: %w", ErrSeatAvailabilityIncomplete, err)
 			}
 			seatID := SeatID(auditoriumID, label)
 			if _, known := layoutSeats[seatID]; !known {

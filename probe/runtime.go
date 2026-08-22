@@ -610,7 +610,7 @@ func validateExecutionOutput(output executionOutput) error {
 		return nil
 	}
 	if err := protovalidate.Validate(output.seatAvailability); err != nil {
-		return fmt.Errorf("%w: %v", errInvalidExecutionOutput, err)
+		return fmt.Errorf("%w: %w", errInvalidExecutionOutput, err)
 	}
 	return nil
 }
@@ -623,7 +623,7 @@ func validateSeatAvailabilityCapture(
 		return fmt.Errorf("%w: seat availability is missing", errInvalidExecutionOutput)
 	}
 	if err := protovalidate.Validate(availability); err != nil {
-		return fmt.Errorf("%w: %v", errInvalidExecutionOutput, err)
+		return fmt.Errorf("%w: %w", errInvalidExecutionOutput, err)
 	}
 	if task == nil || task.GetSeatAvailability() == nil || task.GetSeatAvailability().GetShowtime() == nil || task.GetSeatAvailability().GetAuditorium() == nil {
 		return fmt.Errorf("%w: assignment target is missing", errInvalidExecutionOutput)
