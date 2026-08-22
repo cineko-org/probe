@@ -180,6 +180,9 @@ func (executor *CGVExecutor) CaptureCatalog(
 	if catalogTask == nil {
 		return nil, fmt.Errorf("%w: unsupported Probe task kind", errLocalExecution)
 	}
+	if catalogTask.GetProviderId() != cgv.ProviderCGV {
+		return nil, fmt.Errorf("%w: unsupported catalog provider", errLocalExecution)
+	}
 	if err := requireManagedScan(task); err != nil {
 		return nil, err
 	}

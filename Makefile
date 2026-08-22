@@ -29,11 +29,11 @@ test:
 
 contract-check:
 	@! grep -Eq '^[[:space:]]*replace([[:space:]]|\()' go.mod
-	@test "$$(grep -Ec '^[[:space:]]*github.com/cineko-org/contracts/v3[[:space:]]+v3\.5\.1([[:space:]]*//[[:space:]]*indirect)?[[:space:]]*$$' go.mod)" -eq 1
+	@test "$$(grep -Ec '^[[:space:]]*github.com/cineko-org/contracts/v3[[:space:]]+v3\.5\.3([[:space:]]*//[[:space:]]*indirect)?[[:space:]]*$$' go.mod)" -eq 1
 	@test "$$(grep -Ec '^[[:space:]]*github.com/cineko-org/contracts(/v[0-9]+)?[[:space:]]' go.mod)" -eq 1
-	@test "$$(grep -Ec '^github.com/cineko-org/contracts/v3 v3\.5\.1(/go\.mod)? h1:' go.sum)" -eq 2
+	@test "$$(grep -Ec '^github.com/cineko-org/contracts/v3 v3\.5\.3(/go\.mod)? h1:' go.sum)" -eq 2
 	@test "$$(grep -Ec '^github.com/cineko-org/contracts(/v[0-9]+)? ' go.sum)" -eq 2
-	@test "$$(grep -Ec '^# github.com/cineko-org/contracts/v3 v3\.5\.1$$' vendor/modules.txt)" -eq 1
+	@test "$$(grep -Ec '^# github.com/cineko-org/contracts/v3 v3\.5\.3$$' vendor/modules.txt)" -eq 1
 	@test "$$(grep -Ec '^# github.com/cineko-org/contracts(/v[0-9]+)? v' vendor/modules.txt)" -eq 1
 	@! grep -R -En --include='*.go' 'github.com/cineko-org/contracts(/v[0-9]+)?/' cmd internal probe | grep -Ev 'github.com/cineko-org/contracts/v3/'
 
