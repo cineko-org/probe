@@ -166,7 +166,7 @@ func (adapter *Adapter) selectDate(isoDate string) error {
 			return adapter.wait(500 * time.Millisecond)
 		}
 	}
-	return fmt.Errorf("%w: target date %s is not selectable", ErrUIContractChanged, isoDate)
+	return fmt.Errorf("%w: target date %s", ErrTargetDateUnavailable, isoDate)
 }
 
 func dateSelectionLabels(parsed, now time.Time) []string {
