@@ -206,7 +206,15 @@ func (adapter *Adapter) extractSchedules(
 	}
 	entries := make([]scheduleEntry, 0, len(rows))
 	seen := make(map[string]struct{}, len(rows))
+	targetRows := 0
 	for _, row := range rows {
+		// CGV can include linked venue rows in a response for one site (for
+		// example 0013 together with P013). The assignment identity remains the
+		// authority, so only rows for its exact site number belong to this capture.
+		if row.SiteNo != strings.TrimSpace(theater.SourceKey) {
+			continue
+		}
+		targetRows++
 		if row.Date != canonicalDate {
 			return nil, fmt.Errorf(
 				"CGV schedule row %q has date %q, expected %q",
@@ -222,6 +230,12 @@ func (adapter *Adapter) extractSchedules(
 		}
 		seen[entry.Showtime.ID] = struct{}{}
 		entries = append(entries, entry)
+	}
+	if len(rows) > 0 && targetRows == 0 {
+		return nil, fmt.Errorf(
+			"%w: CGV schedule response contained no rows for theater siteNo %q",
+			ErrIdentityMismatch, strings.TrimSpace(theater.SourceKey),
+		)
 	}
 	return entries, nil
 }
