@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.5](https://github.com/cineko-org/probe/compare/v2.7.4...v2.7.5) (2026-08-22)
+
+
+### Bug Fixes
+
+* use typed Central contracts ([#33](https://github.com/cineko-org/probe/issues/33)) ([a9e78c5](https://github.com/cineko-org/probe/commit/a9e78c5ec02080772ce26ec9901fd66d2e3b818d))
+
 ## [2.7.4](https://github.com/cineko-org/probe/compare/v2.7.3...v2.7.4) (2026-08-22)
 
 
