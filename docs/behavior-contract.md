@@ -1,27 +1,41 @@
 # Probe live-seat behavior contract
 
-Probe exposes `cgv.seat-availability.capture` only from container runtimes.
-Each assignment names one canonical CGV theater, auditorium, and showtime. The
-showtime is resolved again from the provider schedule on its schedule date;
-Probe never chooses a nearby or first available showtime.
+Probe advertises `cgv.seat-map.capture` and
+`cgv.seat-availability.capture` from container runtimes. Both capabilities
+produce the same contract result: `AssignmentResult.completed.live_seat`.
 
-The seat response is parsed into two separate values:
+`live_seat` is atomic. It contains one `seatmap.LiveSeatObservation` with a
+normalized static layout and the exact-showtime availability snapshot. The two
+snapshots share the auditorium, deterministic `layout_hash`, and capture
+timestamp. Probe never returns a layout-only or availability-only result.
 
-- static layout geometry and metadata, hashed deterministically as
-  `layout_hash`;
-- a timestamped set of normalized Cineko seat IDs whose provider status is
-  `seatSaleYn=Y` and `seatStusCd=00`.
+Provider catalog entities use typed CGV identities; provider display text is
+not used as identity. A `SeatAvailabilityTask` requires an exact typed
+showtime and re-resolves it from the current CGV schedule before the seat page
+is opened. A `SeatMapTask` requires typed theater and auditorium identities and
+may include an exact typed showtime; when it does not, Probe searches target
+dates in order and selects the earliest currently bookable showtime for the
+requested auditorium. It never substitutes a nearby auditorium or showtime.
 
-Seat labels use an uppercase row and canonical decimal seat number before the
+The same provider response supplies both layout and status. Seat labels use an
+uppercase row and canonical decimal seat number before the
 auditorium-scoped Cineko seat ID is built; provider padding is not preserved.
-
 Every provider seat must map to the static layout and carry a recognized sale
 flag and status. Missing, duplicate, partial, or identity-mismatched data
 fails closed; an empty available-seat set is valid only when the complete
-response proves it. `observed_at` is the time the live response was captured.
+response proves it.
 
-Authentication, CAPTCHA, UI-contract drift, throttling, and blocked egress are
-reported as distinct failure reasons. A protection signal is never converted
-to a successful empty-seat observation. Blocked egress, throttling, and capture
-timeouts set `Failed.retryable=true`; authentication, CAPTCHA, UI drift, and
-incomplete seat status remain terminal for that assignment.
+If no requested date can be selected, Probe returns
+`Deferred.reason.target_date_unavailable`. If selectable dates contain no
+currently bookable matching showtime, it returns
+`Deferred.reason.no_bookable_showtime`. Provider failures are returned through
+the typed `collection.FailureReason` oneof (including identity mismatch,
+blocked, throttled, CAPTCHA, authentication, UI drift, browser start,
+transport, server, invalid result, and timeout cases). There is no legacy
+result fallback, retryable boolean, reason-code field, or legacy provider
+endpoint fallback.
+
+Before returning a typed deferred or failed result, Probe records only the Go
+error class in structured logs through `provider_error_summary`. It never reads
+the provider-controlled error text for that attribute, so URLs, userinfo,
+credentials, headers, tokens, and cookies cannot enter the summary.

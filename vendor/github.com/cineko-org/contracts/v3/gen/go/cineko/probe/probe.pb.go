@@ -8,8 +8,8 @@ package probe
 
 import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
-	common "github.com/cineko-org/contracts/gen/go/cineko/common"
-	observation "github.com/cineko-org/contracts/gen/go/cineko/observation"
+	common "github.com/cineko-org/contracts/v3/gen/go/cineko/common"
+	observation "github.com/cineko-org/contracts/v3/gen/go/cineko/observation"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -2319,7 +2319,7 @@ const file_cineko_probe_probe_proto_rawDesc = "" +
 	"\vlease_token\x18\x02 \x01(\tB\n" +
 	"\xbaH\a\xc8\x01\x01r\x02\x10\x01R\n" +
 	"leaseToken\x12D\n" +
-	"\x06result\x18\x03 \x01(\v2$.cineko.observation.AssignmentResultB\x06\xbaH\x03\xc8\x01\x01R\x06resultB;Z9github.com/cineko-org/contracts/gen/go/cineko/probe;probeb\beditionsp\xe9\a"
+	"\x06result\x18\x03 \x01(\v2$.cineko.observation.AssignmentResultB\x06\xbaH\x03\xc8\x01\x01R\x06resultB>Z<github.com/cineko-org/contracts/v3/gen/go/cineko/probe;probeb\beditionsp\xe9\a"
 
 var file_cineko_probe_probe_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_cineko_probe_probe_proto_goTypes = []any{

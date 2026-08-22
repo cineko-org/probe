@@ -204,9 +204,6 @@ func (adapter *Adapter) extractSchedules(
 				row.Sequence, row.Date, canonicalDate,
 			)
 		}
-		if row.SiteNo != strings.TrimSpace(theater.SourceKey) {
-			return nil, fmt.Errorf("CGV schedule row siteNo %q does not match theater identity", row.SiteNo)
-		}
 		entry, err := scheduleEntryFromProviderRow(row, theater)
 		if err != nil {
 			return nil, err
@@ -221,6 +218,14 @@ func (adapter *Adapter) extractSchedules(
 }
 
 func scheduleEntryFromProviderRow(row providerScheduleRow, theater ScheduleTheater) (scheduleEntry, error) {
+	theaterSiteNo := strings.TrimSpace(theater.SourceKey)
+	if theater.ProviderID != ProviderCGV || !numericIdentifier(theaterSiteNo) ||
+		theater.ID != CatalogID(ProviderCGV, "theater", theaterSiteNo) {
+		return scheduleEntry{}, fmt.Errorf("%w: CGV theater identity is not canonical", ErrIdentityMismatch)
+	}
+	if row.SiteNo != theaterSiteNo {
+		return scheduleEntry{}, fmt.Errorf("%w: CGV schedule row siteNo %q does not match theater identity", ErrIdentityMismatch, row.SiteNo)
+	}
 	auditoriumName, screenTypes := parseAuditorium("", row.AuditoriumName)
 	if auditoriumName == "" {
 		return scheduleEntry{}, fmt.Errorf("CGV schedule row %q has no auditorium display name", row.Sequence)

@@ -28,15 +28,16 @@ test:
 	$(GO) test -mod=vendor -race ./...
 
 contract-check:
-	grep -Eq '^# github.com/cineko-org/contracts v0\.0\.0-20260822085048-37a628469be1( => ../contracts)?$$' vendor/modules.txt
-	@! grep -Eq 'github.com/cineko-org/contracts/v[0-9]+' go.mod vendor/modules.txt
-
-contract-release-check:
 	@! grep -Eq '^[[:space:]]*replace([[:space:]]|\()' go.mod
-	@grep -Eq '^[[:space:]]*github.com/cineko-org/contracts v0\.0\.0-20260822085048-37a628469be1$$' go.mod
-	@grep -Eq '^# github.com/cineko-org/contracts v0\.0\.0-20260822085048-37a628469be1$$' vendor/modules.txt
-	@grep -Eq '^github.com/cineko-org/contracts v0\.0\.0-20260822085048-37a628469be1 h1:' go.sum
-	@! grep -Eq 'github.com/cineko-org/contracts/v[0-9]+' go.mod go.sum vendor/modules.txt
+	@test "$$(grep -Ec '^[[:space:]]*github.com/cineko-org/contracts/v3[[:space:]]+v3\.5\.1([[:space:]]*//[[:space:]]*indirect)?[[:space:]]*$$' go.mod)" -eq 1
+	@test "$$(grep -Ec '^[[:space:]]*github.com/cineko-org/contracts(/v[0-9]+)?[[:space:]]' go.mod)" -eq 1
+	@test "$$(grep -Ec '^github.com/cineko-org/contracts/v3 v3\.5\.1(/go\.mod)? h1:' go.sum)" -eq 2
+	@test "$$(grep -Ec '^github.com/cineko-org/contracts(/v[0-9]+)? ' go.sum)" -eq 2
+	@test "$$(grep -Ec '^# github.com/cineko-org/contracts/v3 v3\.5\.1$$' vendor/modules.txt)" -eq 1
+	@test "$$(grep -Ec '^# github.com/cineko-org/contracts(/v[0-9]+)? v' vendor/modules.txt)" -eq 1
+	@! grep -R -En --include='*.go' 'github.com/cineko-org/contracts(/v[0-9]+)?/' cmd internal probe | grep -Ev 'github.com/cineko-org/contracts/v3/'
+
+contract-release-check: contract-check
 
 workflow-check:
 	$(GO) run github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION) .github/workflows/*.yml

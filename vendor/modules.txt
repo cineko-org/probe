@@ -18,13 +18,14 @@ github.com/cenkalti/backoff/v5
 # github.com/cespare/xxhash/v2 v2.3.0
 ## explicit; go 1.11
 github.com/cespare/xxhash/v2
-# github.com/cineko-org/contracts v0.0.0-20260822085048-37a628469be1
+# github.com/cineko-org/contracts/v3 v3.5.1
 ## explicit; go 1.26
-github.com/cineko-org/contracts/gen/go/cineko/catalog
-github.com/cineko-org/contracts/gen/go/cineko/common
-github.com/cineko-org/contracts/gen/go/cineko/observation
-github.com/cineko-org/contracts/gen/go/cineko/probe
-github.com/cineko-org/contracts/gen/go/cineko/seatmap
+github.com/cineko-org/contracts/v3/gen/go/cineko/catalog
+github.com/cineko-org/contracts/v3/gen/go/cineko/collection
+github.com/cineko-org/contracts/v3/gen/go/cineko/common
+github.com/cineko-org/contracts/v3/gen/go/cineko/observation
+github.com/cineko-org/contracts/v3/gen/go/cineko/probe
+github.com/cineko-org/contracts/v3/gen/go/cineko/seatmap
 # github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
 ## explicit
 # github.com/deckarep/golang-set/v2 v2.9.0

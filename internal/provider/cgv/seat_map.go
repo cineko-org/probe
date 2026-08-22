@@ -10,22 +10,22 @@ import (
 	"strings"
 	"time"
 
-	catalogpb "github.com/cineko-org/contracts/gen/go/cineko/catalog"
-	commonpb "github.com/cineko-org/contracts/gen/go/cineko/common"
-	observationpb "github.com/cineko-org/contracts/gen/go/cineko/observation"
-	seatmappb "github.com/cineko-org/contracts/gen/go/cineko/seatmap"
+	catalogpb "github.com/cineko-org/contracts/v3/gen/go/cineko/catalog"
+	commonpb "github.com/cineko-org/contracts/v3/gen/go/cineko/common"
+	observationpb "github.com/cineko-org/contracts/v3/gen/go/cineko/observation"
+	seatmappb "github.com/cineko-org/contracts/v3/gen/go/cineko/seatmap"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const seatMapResponseTimeout = 8 * time.Second
 
-// CaptureSeatMap visits one exact nonmember seat page and returns only its
-// static layout. Live availability is intentionally discarded.
+// CaptureSeatMap visits a bookable showtime and returns layout and availability
+// from the same provider response.
 func (adapter *Adapter) CaptureSeatMap(
 	ctx context.Context,
 	task *observationpb.AssignmentTask,
-) (*seatmappb.Snapshot, error) {
+) (*seatmappb.LiveSeatObservation, error) {
 	adapter.mu.Lock()
 	defer adapter.mu.Unlock()
 	if err := validateSeatMapTask(task); err != nil {
@@ -37,7 +37,7 @@ func (adapter *Adapter) CaptureSeatMap(
 	}
 	showtime, err := adapter.resolveSeatMapShowtime(seatTask, ScheduleTheater{
 		ID: seatTask.GetTheater().GetId(), ProviderID: seatTask.GetTheater().GetProviderId(),
-		SourceKey: seatTask.GetTheater().GetSourceKey(), Region: seatTask.GetTheater().GetRegion(), Name: seatTask.GetTheater().GetName(),
+		SourceKey: siteNoForTheater(seatTask.GetTheater()), Region: seatTask.GetTheater().GetRegion(), Name: seatTask.GetTheater().GetName(),
 	})
 	if err != nil {
 		return nil, err
@@ -64,31 +64,19 @@ func (adapter *Adapter) CaptureSeatMap(
 	if err != nil {
 		return nil, err
 	}
-	snapshot := &seatmappb.Snapshot{}
-	hash, err := layoutHash(layout)
+	availableIDs, err := parseSeatAvailability(captured.body, seatTask.GetAuditorium().GetId(), layout)
 	if err != nil {
-		return nil, fmt.Errorf("hash seat-map layout: %w", err)
+		return nil, err
 	}
-	snapshot.SetId(SeatMapVersionID(seatTask.GetAuditorium().GetId(), hash))
-	snapshot.SetAuditoriumId(seatTask.GetAuditorium().GetId())
-	snapshot.SetLayoutHash(hash)
-	capacity, err := seatCountAsInt32(len(layout.GetSeats()))
-	if err != nil {
-		return nil, errors.New("seat-map layout contains too many seats")
-	}
-	snapshot.SetCapacity(capacity)
-	snapshot.SetLayout(layout)
-	snapshot.SetObservedAt(timestamppb.New(time.Now().UTC()))
-	return snapshot, nil
+	return liveSeatObservation(showtime.ID, seatTask.GetAuditorium().GetId(), layout, availableIDs)
 }
 
 // CaptureSeatAvailability visits the supplied exact showtime and returns a
-// complete live seat view. The static layout is parsed only to derive and
-// validate its layout hash; it is not embedded in the availability result.
+// complete live seat view with its static layout atomically embedded.
 func (adapter *Adapter) CaptureSeatAvailability(
 	ctx context.Context,
 	task *observationpb.AssignmentTask,
-) (*seatmappb.AvailabilitySnapshot, error) {
+) (*seatmappb.LiveSeatObservation, error) {
 	adapter.mu.Lock()
 	defer adapter.mu.Unlock()
 	if err := validateSeatAvailabilityTask(task); err != nil {
@@ -97,7 +85,7 @@ func (adapter *Adapter) CaptureSeatAvailability(
 	seatTask := task.GetSeatAvailability()
 	theater := ScheduleTheater{
 		ID: seatTask.GetTheater().GetId(), ProviderID: seatTask.GetTheater().GetProviderId(),
-		SourceKey: seatTask.GetTheater().GetSourceKey(), Region: seatTask.GetTheater().GetRegion(), Name: seatTask.GetTheater().GetName(),
+		SourceKey: siteNoForTheater(seatTask.GetTheater()), Region: seatTask.GetTheater().GetRegion(), Name: seatTask.GetTheater().GetName(),
 	}
 	if err := adapter.selectCinemaTheater(theater.Region, theater.Name); err != nil {
 		return nil, err
@@ -132,23 +120,42 @@ func (adapter *Adapter) CaptureSeatAvailability(
 	if err != nil {
 		return nil, err
 	}
+	return liveSeatObservation(seatTask.GetShowtime().GetId(), seatTask.GetAuditorium().GetId(), layout, availableIDs)
+}
+
+func liveSeatObservation(showtimeID, auditoriumID string, layout *seatmappb.Layout, availableIDs []string) (*seatmappb.LiveSeatObservation, error) {
 	hash, err := layoutHash(layout)
 	if err != nil {
 		return nil, fmt.Errorf("hash seat-map layout: %w", err)
 	}
+	capacity, err := seatCountAsInt32(len(layout.GetSeats()))
+	if err != nil {
+		return nil, errors.New("seat-map layout contains too many seats")
+	}
+	observedAt := timestamppb.New(time.Now().UTC())
+	snapshot := &seatmappb.Snapshot{}
+	snapshot.SetId(SeatMapVersionID(auditoriumID, hash))
+	snapshot.SetAuditoriumId(auditoriumID)
+	snapshot.SetLayoutHash(hash)
+	snapshot.SetCapacity(capacity)
+	snapshot.SetLayout(layout)
+	snapshot.SetObservedAt(observedAt)
 	availableSeats := make([]*seatmappb.AvailableSeat, 0, len(availableIDs))
 	for _, seatID := range availableIDs {
 		seat := &seatmappb.AvailableSeat{}
 		seat.SetSeatId(seatID)
 		availableSeats = append(availableSeats, seat)
 	}
-	snapshot := &seatmappb.AvailabilitySnapshot{}
-	snapshot.SetShowtimeId(seatTask.GetShowtime().GetId())
-	snapshot.SetAuditoriumId(seatTask.GetAuditorium().GetId())
-	snapshot.SetLayoutHash(hash)
-	snapshot.SetAvailableSeats(availableSeats)
-	snapshot.SetObservedAt(timestamppb.New(time.Now().UTC()))
-	return snapshot, nil
+	availability := &seatmappb.AvailabilitySnapshot{}
+	availability.SetShowtimeId(showtimeID)
+	availability.SetAuditoriumId(auditoriumID)
+	availability.SetLayoutHash(hash)
+	availability.SetAvailableSeats(availableSeats)
+	availability.SetObservedAt(observedAt)
+	result := &seatmappb.LiveSeatObservation{}
+	result.SetLayout(snapshot)
+	result.SetAvailability(availability)
+	return result, nil
 }
 
 func seatCountAsInt32(value int) (int32, error) {
@@ -170,7 +177,7 @@ func layoutHash(layout *seatmappb.Layout) (string, error) {
 func validateSeatMapTask(task *observationpb.AssignmentTask) error {
 	seatTask := task.GetSeatMap()
 	if seatTask == nil || seatTask.GetAuditorium() == nil || seatTask.GetTheater() == nil {
-		return errors.New("seat-map assignment target is incomplete")
+		return fmt.Errorf("%w: seat-map assignment target is incomplete", ErrIdentityMismatch)
 	}
 	if err := validateSeatMapTheater(seatTask.GetTheater()); err != nil {
 		return err
@@ -183,18 +190,24 @@ func validateSeatMapTask(task *observationpb.AssignmentTask) error {
 			return err
 		}
 	} else if len(seatTask.GetTargetDates()) == 0 {
-		return errors.New("seat-map assignment capture window is required")
+		return fmt.Errorf("%w: seat-map assignment capture window is required", ErrIdentityMismatch)
 	}
 	if strings.TrimSpace(seatTask.GetTimeZone()) == "" {
-		return errors.New("seat-map assignment time zone is required")
+		return fmt.Errorf("%w: seat-map assignment time zone is required", ErrIdentityMismatch)
 	}
 	return nil
+}
+
+// ValidateSeatMapTask checks the provider identity required before a live-seat
+// browser operation is opened.
+func ValidateSeatMapTask(task *observationpb.AssignmentTask) error {
+	return validateSeatMapTask(task)
 }
 
 func validateSeatAvailabilityTask(task *observationpb.AssignmentTask) error {
 	seatTask := task.GetSeatAvailability()
 	if seatTask == nil || seatTask.GetTheater() == nil || seatTask.GetAuditorium() == nil || seatTask.GetShowtime() == nil {
-		return errors.New("seat-availability assignment target is incomplete")
+		return fmt.Errorf("%w: seat-availability assignment target is incomplete", ErrIdentityMismatch)
 	}
 	if err := validateSeatMapTheater(seatTask.GetTheater()); err != nil {
 		return err
@@ -205,17 +218,28 @@ func validateSeatAvailabilityTask(task *observationpb.AssignmentTask) error {
 	if err := validateSeatMapShowtime(seatTask.GetShowtime()); err != nil {
 		return err
 	}
-	showtime := seatTask.GetShowtime()
-	if showtime.GetTheaterId() != seatTask.GetTheater().GetId() ||
-		showtime.GetAuditorium() == nil || showtime.GetAuditorium().GetId() != seatTask.GetAuditorium().GetId() ||
-		showtime.GetAuditorium().GetTheaterId() != seatTask.GetTheater().GetId() {
-		return errors.New("seat-availability showtime identity does not match target")
+	if err := validateSeatAvailabilityTarget(seatTask); err != nil {
+		return err
 	}
-	if strings.TrimSpace(seatTask.GetLocale()) == "" || strings.TrimSpace(seatTask.GetTimeZone()) == "" {
-		return errors.New("seat-availability locale and time zone are required")
+	_, date, _, _, validIdentity := ShowtimeIdentityValues(seatTask.GetShowtime())
+	if !validIdentity {
+		return fmt.Errorf("%w: showtime identity is not canonical", ErrIdentityMismatch)
 	}
-	if _, err := seatMapTargetDate(showtime.GetScheduleDate()); err != nil {
+	if _, err := seatMapTargetDateValue(date); err != nil {
 		return fmt.Errorf("seat-availability showtime schedule date: %w", err)
+	}
+	return nil
+}
+
+func validateSeatAvailabilityTarget(task *observationpb.SeatAvailabilityTask) error {
+	showtime := task.GetShowtime()
+	if showtime.GetTheaterId() != task.GetTheater().GetId() ||
+		showtime.GetAuditorium() == nil || showtime.GetAuditorium().GetId() != task.GetAuditorium().GetId() ||
+		showtime.GetAuditorium().GetTheaterId() != task.GetTheater().GetId() {
+		return fmt.Errorf("%w: seat-availability showtime identity does not match target", ErrIdentityMismatch)
+	}
+	if strings.TrimSpace(task.GetLocale()) == "" || strings.TrimSpace(task.GetTimeZone()) == "" {
+		return fmt.Errorf("%w: seat-availability locale and time zone are required", ErrIdentityMismatch)
 	}
 	return nil
 }
@@ -227,31 +251,33 @@ func ValidateSeatAvailabilityTask(task *observationpb.AssignmentTask) error {
 }
 
 func validateSeatMapAuditoriumIdentity(theater *catalogpb.Theater, auditorium *catalogpb.Auditorium) error {
-	if theater == nil || auditorium == nil || auditorium.GetTheaterId() != theater.GetId() ||
-		auditorium.GetId() != CatalogID(ProviderCGV, "auditorium", auditorium.GetSourceKey()) ||
-		strings.TrimSpace(auditorium.GetName()) == "" ||
-		strings.TrimSpace(auditorium.GetSourceKey()) == "" {
-		return errors.New("seat-map auditorium identity is not canonical")
+	siteNo, validTheater := TheaterSiteNo(theater)
+	auditoriumSite, screenNo, validAuditorium := AuditoriumIdentityValues(auditorium)
+	if theater == nil || auditorium == nil || !validTheater || !validAuditorium || auditorium.GetTheaterId() != theater.GetId() ||
+		auditoriumSite != siteNo || auditorium.GetId() != CatalogID(ProviderCGV, "auditorium", auditoriumSite+"/"+screenNo) ||
+		strings.TrimSpace(auditorium.GetName()) == "" {
+		return fmt.Errorf("%w: seat-map auditorium identity is not canonical", ErrIdentityMismatch)
 	}
 	return nil
 }
 
 func validateSeatMapTheater(theater *catalogpb.Theater) error {
-	if theater == nil || theater.GetProviderId() != ProviderCGV || strings.TrimSpace(theater.GetSourceKey()) == "" ||
+	siteNo, validIdentity := TheaterSiteNo(theater)
+	if theater == nil || theater.GetProviderId() != ProviderCGV || !validIdentity ||
 		strings.TrimSpace(theater.GetRegion()) == "" || strings.TrimSpace(theater.GetName()) == "" ||
-		theater.GetId() != CatalogID(ProviderCGV, "theater", theater.GetSourceKey()) {
-		return errors.New("seat-map theater identity is not canonical")
+		theater.GetId() != CatalogID(ProviderCGV, "theater", siteNo) {
+		return fmt.Errorf("%w: seat-map theater identity is not canonical", ErrIdentityMismatch)
 	}
 	return nil
 }
 
 func validateSeatMapAuditorium(task *observationpb.SeatMapTask) error {
 	if !validSeatMapAuditoriumIdentity(task) {
-		return errors.New("seat-map auditorium identity is not canonical")
+		return fmt.Errorf("%w: seat-map auditorium identity is not canonical", ErrIdentityMismatch)
 	}
 	showtime := task.GetShowtime()
 	if showtime != nil && (showtime.GetAuditorium() == nil || showtime.GetAuditorium().GetId() != task.GetAuditorium().GetId()) {
-		return errors.New("seat-map auditorium identity is not canonical")
+		return fmt.Errorf("%w: seat-map auditorium identity is not canonical", ErrIdentityMismatch)
 	}
 	return nil
 }
@@ -267,7 +293,11 @@ func (adapter *Adapter) resolveSeatMapShowtime(
 	theater ScheduleTheater,
 ) (ScheduleShowtime, error) {
 	if task.GetShowtime() != nil {
-		date, err := seatMapTargetDate(task.GetShowtime().GetScheduleDate())
+		_, dateValue, _, _, validIdentity := ShowtimeIdentityValues(task.GetShowtime())
+		if !validIdentity {
+			return ScheduleShowtime{}, fmt.Errorf("%w: showtime identity is not canonical", ErrIdentityMismatch)
+		}
+		date, err := seatMapTargetDateValue(dateValue)
 		if err != nil {
 			return ScheduleShowtime{}, fmt.Errorf("seat-map showtime schedule date: %w", err)
 		}
@@ -303,16 +333,20 @@ func (adapter *Adapter) resolveSeatMapShowtime(
 		}
 	}
 	if selectableDates == 0 {
-		return ScheduleShowtime{}, fmt.Errorf("%w: no requested seat-map date was selectable", ErrUIContractChanged)
+		return ScheduleShowtime{}, fmt.Errorf("%w: no requested seat-map date was selectable", ErrTargetDateUnavailable)
 	}
-	return ScheduleShowtime{}, errors.New("no bookable showtime is available for the requested auditorium")
+	return ScheduleShowtime{}, ErrNoBookableShowtime
 }
 
 func (adapter *Adapter) resolveSeatAvailabilityShowtime(
 	task *observationpb.SeatAvailabilityTask,
 	theater ScheduleTheater,
 ) (ScheduleShowtime, error) {
-	date, err := seatMapTargetDate(task.GetShowtime().GetScheduleDate())
+	_, dateValue, _, _, validIdentity := ShowtimeIdentityValues(task.GetShowtime())
+	if !validIdentity {
+		return ScheduleShowtime{}, fmt.Errorf("%w: showtime identity is not canonical", ErrIdentityMismatch)
+	}
+	date, err := seatMapTargetDateValue(dateValue)
 	if err != nil {
 		return ScheduleShowtime{}, err
 	}
@@ -338,6 +372,13 @@ func seatMapTargetDate(value *commonpb.LocalDate) (string, error) {
 	return date.Format(time.DateOnly), nil
 }
 
+func seatMapTargetDateValue(value string) (string, error) {
+	if strings.TrimSpace(value) == "" {
+		return "", errors.New("seat-map target date is missing")
+	}
+	return canonicalProviderDate(value)
+}
+
 // firstBookableSeatMapShowtime preserves provider order while excluding
 // unrelated auditoriums and showtimes that cannot open the seat page.
 func firstBookableSeatMapShowtime(entries []scheduleEntry, auditoriumID string) (ScheduleShowtime, bool) {
@@ -352,49 +393,64 @@ func firstBookableSeatMapShowtime(entries []scheduleEntry, auditoriumID string) 
 func validateSeatMapShowtime(showtime *catalogpb.Showtime) error {
 	if !validSeatMapShowtimeIdentity(showtime) || !validSeatMapMovieIdentity(showtime.GetMovie()) ||
 		!validSeatMapShowtimeAuditorium(showtime) || !validSeatMapShowtimeWindow(showtime) {
-		return errors.New("seat-map showtime identity is not canonical")
+		return fmt.Errorf("%w: seat-map showtime identity is not canonical", ErrIdentityMismatch)
 	}
-	if _, err := seatMapTargetDate(showtime.GetScheduleDate()); err != nil {
+	_, date, _, _, validIdentity := ShowtimeIdentityValues(showtime)
+	if !validIdentity {
+		return fmt.Errorf("%w: showtime identity is not canonical", ErrIdentityMismatch)
+	}
+	if _, err := seatMapTargetDateValue(date); err != nil {
 		return fmt.Errorf("seat-map showtime schedule date: %w", err)
 	}
 	return nil
 }
 
 func validSeatMapShowtimeIdentity(showtime *catalogpb.Showtime) bool {
-	return showtime != nil && showtime.GetProviderId() == ProviderCGV && strings.TrimSpace(showtime.GetSourceKey()) != "" &&
-		showtime.GetId() == CatalogID(ProviderCGV, "showtime", showtime.GetSourceKey()) && strings.TrimSpace(showtime.GetTheaterId()) != ""
+	siteNo, date, screenNo, sequence, validIdentity := ShowtimeIdentityValues(showtime)
+	return showtime != nil && showtime.GetProviderId() == ProviderCGV && validIdentity &&
+		showtime.GetId() == CatalogID(ProviderCGV, "showtime", showtimeSourceKey(siteNo, date, screenNo, sequence)) &&
+		showtime.GetTheaterId() == CatalogID(ProviderCGV, "theater", siteNo)
 }
 
 func validSeatMapMovieIdentity(movie *catalogpb.Movie) bool {
-	return movie != nil && movie.GetProviderId() == ProviderCGV && strings.TrimSpace(movie.GetSourceKey()) != "" &&
-		strings.TrimSpace(movie.GetTitle()) != "" && movie.GetId() == CatalogID(ProviderCGV, "movie", movie.GetSourceKey())
+	return movie != nil && movie.GetProviderId() == ProviderCGV && movie.GetIdentity() != nil && movie.GetIdentity().GetCgv() != nil &&
+		numericIdentifier(strings.TrimSpace(movie.GetIdentity().GetCgv().GetMovieNo())) && strings.TrimSpace(movie.GetTitle()) != "" &&
+		movie.GetId() == CatalogID(ProviderCGV, "movie", movie.GetIdentity().GetCgv().GetMovieNo())
 }
 
 func validSeatMapShowtimeAuditorium(showtime *catalogpb.Showtime) bool {
 	auditorium := showtime.GetAuditorium()
-	return auditorium != nil && strings.TrimSpace(auditorium.GetSourceKey()) != "" && strings.TrimSpace(auditorium.GetName()) != "" &&
-		auditorium.GetId() == CatalogID(ProviderCGV, "auditorium", auditorium.GetSourceKey()) &&
+	auditoriumSite, auditoriumScreen, validAuditorium := AuditoriumIdentityValues(auditorium)
+	showtimeSite, _, showtimeScreen, _, validShowtime := ShowtimeIdentityValues(showtime)
+	return auditorium != nil && validAuditorium && validShowtime &&
+		auditoriumSite == showtimeSite && auditoriumScreen == showtimeScreen && strings.TrimSpace(auditorium.GetName()) != "" &&
+		auditorium.GetId() == CatalogID(ProviderCGV, "auditorium", auditoriumSite+"/"+auditoriumScreen) &&
 		auditorium.GetTheaterId() == showtime.GetTheaterId()
 }
 
 func validSeatMapShowtimeWindow(showtime *catalogpb.Showtime) bool {
 	startsAt, endsAt := showtime.GetStartsAt(), showtime.GetEndsAt()
-	return showtime.GetScheduleDate() != nil && startsAt != nil && endsAt != nil && startsAt.CheckValid() == nil &&
+	_, _, _, _, validIdentity := ShowtimeIdentityValues(showtime)
+	return validIdentity && startsAt != nil && endsAt != nil && startsAt.CheckValid() == nil &&
 		endsAt.CheckValid() == nil && endsAt.AsTime().After(startsAt.AsTime())
 }
 
 func exactSeatMapShowtime(entries []scheduleEntry, command *catalogpb.Showtime) (ScheduleShowtime, error) {
 	if command == nil || command.GetMovie() == nil || command.GetAuditorium() == nil {
-		return ScheduleShowtime{}, errors.New("exact showtime command is missing")
+		return ScheduleShowtime{}, fmt.Errorf("%w: exact showtime command is missing", ErrIdentityMismatch)
+	}
+	commandKey, validIdentity := showtimeProviderKey(command)
+	if !validIdentity {
+		return ScheduleShowtime{}, fmt.Errorf("%w: exact showtime identity is incomplete", ErrIdentityMismatch)
 	}
 	var matches []ScheduleShowtime
 	for _, entry := range entries {
-		if entry.Showtime.SourceKey == command.GetSourceKey() {
+		if entry.Showtime.SourceKey == commandKey {
 			matches = append(matches, entry.Showtime)
 		}
 	}
 	if len(matches) != 1 {
-		return ScheduleShowtime{}, fmt.Errorf("%w: expected one provider row for %s, got %d", ErrUIContractChanged, command.GetSourceKey(), len(matches))
+		return ScheduleShowtime{}, fmt.Errorf("%w: expected one provider row for %s, got %d", ErrUIContractChanged, commandKey, len(matches))
 	}
 	match := matches[0]
 	if match.ProviderID != ProviderCGV || match.ID != command.GetId() || match.TheaterID != command.GetTheaterId() ||
@@ -402,6 +458,19 @@ func exactSeatMapShowtime(entries []scheduleEntry, command *catalogpb.Showtime) 
 		return ScheduleShowtime{}, fmt.Errorf("%w: provider showtime tuple changed", ErrUIContractChanged)
 	}
 	return match, nil
+}
+
+func showtimeProviderKey(showtime *catalogpb.Showtime) (string, bool) {
+	siteNo, date, screenNo, sequence, validIdentity := ShowtimeIdentityValues(showtime)
+	if !validIdentity {
+		return "", false
+	}
+	return showtimeSourceKey(siteNo, date, screenNo, sequence), true
+}
+
+func siteNoForTheater(theater *catalogpb.Theater) string {
+	value, _ := TheaterSiteNo(theater)
+	return value
 }
 
 func (adapter *Adapter) openNonmemberSeatPage(showtime ScheduleShowtime) error {

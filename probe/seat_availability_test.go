@@ -3,14 +3,14 @@ package probe
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
-	catalogpb "github.com/cineko-org/contracts/gen/go/cineko/catalog"
-	commonpb "github.com/cineko-org/contracts/gen/go/cineko/common"
-	observationpb "github.com/cineko-org/contracts/gen/go/cineko/observation"
-	seatmappb "github.com/cineko-org/contracts/gen/go/cineko/seatmap"
+	catalogpb "github.com/cineko-org/contracts/v3/gen/go/cineko/catalog"
+	collectionpb "github.com/cineko-org/contracts/v3/gen/go/cineko/collection"
+	commonpb "github.com/cineko-org/contracts/v3/gen/go/cineko/common"
+	observationpb "github.com/cineko-org/contracts/v3/gen/go/cineko/observation"
+	seatmappb "github.com/cineko-org/contracts/v3/gen/go/cineko/seatmap"
 	"github.com/cineko-org/probe/v2/internal/egress"
 	"github.com/cineko-org/probe/v2/internal/provider/cgv"
 	cgvbrowser "github.com/cineko-org/probe/v2/internal/provider/cgv/browser"
@@ -20,7 +20,7 @@ import (
 func TestCGVExecutorCapturesSeatAvailability(t *testing.T) {
 	t.Parallel()
 	task := seatAvailabilityAssignmentTaskForProbe()
-	want := validAvailabilitySnapshot()
+	want := validLiveSeatObservation(cgv.CatalogID(cgv.ProviderCGV, "showtime", "0056/2026-08-21/0007/0003"), cgv.CatalogID(cgv.ProviderCGV, "auditorium", "0056/0007"))
 	delegate := &fakeProbeSeatAvailabilityExecutor{value: want}
 	executor := &CGVExecutor{seatAvailability: delegate}
 	got, err := executor.CaptureSeatAvailability(context.Background(), task)
@@ -38,14 +38,14 @@ func TestCGVExecutorSeatAvailabilityValidationAndBrowserFailures(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	if _, err := (&CGVExecutor{}).CaptureSeatAvailability(ctx, &observationpb.AssignmentTask{}); err == nil {
-		t.Fatal("schedule task accepted as seat-availability capture")
+	if _, err := (&CGVExecutor{}).CaptureSeatAvailability(ctx, &observationpb.AssignmentTask{}); !errors.Is(err, errLocalExecution) {
+		t.Fatalf("wrong task kind error = %v", err)
 	}
 
 	missingEgress := seatAvailabilityAssignmentTaskForProbe()
 	missingEgress.GetEgress().ClearManagedScan()
-	if _, err := (&CGVExecutor{}).CaptureSeatAvailability(ctx, missingEgress); err == nil {
-		t.Fatal("seat-availability capture without managed scan accepted")
+	if _, err := (&CGVExecutor{}).CaptureSeatAvailability(ctx, missingEgress); !errors.Is(err, errLocalExecution) {
+		t.Fatalf("missing managed scan error = %v", err)
 	}
 
 	if _, err := (&CGVExecutor{}).CaptureSeatAvailability(ctx, seatAvailabilityAssignmentTaskForProbe()); err == nil {
@@ -62,14 +62,14 @@ func TestCGVExecutorSeatAvailabilityValidationAndBrowserFailures(t *testing.T) {
 	unsupported := &CGVExecutor{open: func(context.Context, cgvbrowser.Task) (scheduleBrowser, error) {
 		return &scheduleOnlyBrowser{}, nil
 	}}
-	if _, err := unsupported.CaptureSeatAvailability(ctx, seatAvailabilityAssignmentTaskForProbe()); err == nil {
-		t.Fatal("schedule-only browser accepted for seat-availability capture")
+	if _, err := unsupported.CaptureSeatAvailability(ctx, seatAvailabilityAssignmentTaskForProbe()); !errors.Is(err, errLocalExecution) {
+		t.Fatalf("unsupported browser error = %v", err)
 	}
 }
 
 func TestCGVExecutorOpensStandaloneSeatAvailabilityBrowser(t *testing.T) {
 	t.Parallel()
-	want := validAvailabilitySnapshot()
+	want := validLiveSeatObservation(cgv.CatalogID(cgv.ProviderCGV, "showtime", "0056/2026-08-21/0007/0003"), cgv.CatalogID(cgv.ProviderCGV, "auditorium", "0056/0007"))
 	browser := &fakeProbeSeatAvailabilityBrowser{value: want}
 	var openedTask cgvbrowser.Task
 	executor := &CGVExecutor{open: func(_ context.Context, task cgvbrowser.Task) (scheduleBrowser, error) {
@@ -91,35 +91,47 @@ func TestRuntimeProcessesSeatAvailabilityAndPreservesProtectionReasons(t *testin
 	now := time.Now().UTC()
 	assignment := testAssignmentLease("availability_assignment", "lease", now.Add(time.Minute), now.Add(2*time.Minute), seatAvailabilityAssignmentTaskForProbe())
 	api := &fakeAPI{}
-	runtime := newRuntimeForTest(t, api, &fakeProbeSeatAvailabilityExecutor{value: validAvailabilitySnapshot()})
+	assignmentTask := seatAvailabilityAssignmentTaskForProbe()
+	runtime := newRuntimeForTest(t, api, &fakeProbeSeatAvailabilityExecutor{value: validLiveSeatObservation(
+		assignmentTask.GetSeatAvailability().GetShowtime().GetId(),
+		assignmentTask.GetSeatAvailability().GetAuditorium().GetId(),
+	)})
+	assignment.SetTask(assignmentTask)
 	if err := runtime.executeAssignment(context.Background(), Session{}, assignment); err != nil {
 		t.Fatal(err)
 	}
-	if api.committed.GetCompleted() == nil || api.committed.GetCompleted().GetSeatAvailability() == nil {
+	if api.committed.GetCompleted() == nil || api.committed.GetCompleted().GetLiveSeat() == nil {
 		t.Fatalf("availability result = %+v", api.committed)
 	}
 
 	for _, test := range []struct {
-		err       error
-		code      string
-		retryable bool
+		err  error
+		want func(*collectionpb.FailureReason) bool
 	}{
-		{err: cgv.ErrProviderAccessBlocked, code: "provider_access_blocked", retryable: true},
-		{err: cgv.ErrProviderThrottled, code: "provider_throttled", retryable: true},
-		{err: cgv.ErrCaptchaRequired, code: "captcha_required"},
-		{err: cgv.ErrAuthenticationRequired, code: "authentication_required"},
-		{err: cgv.ErrUIContractChanged, code: "ui_contract_changed"},
-		{err: cgv.ErrSeatAvailabilityIncomplete, code: "seat_availability_incomplete"},
-		{err: cgv.ErrTargetDateUnavailable, code: "target_date_unavailable"},
-		{err: context.DeadlineExceeded, code: "capture_timeout", retryable: true},
+		{err: cgv.ErrIdentityMismatch, want: func(reason *collectionpb.FailureReason) bool { return reason.GetIdentityMismatch() != nil }},
+		{err: cgv.ErrProviderAccessBlocked, want: func(reason *collectionpb.FailureReason) bool { return reason.GetProviderBlocked() != nil }},
+		{err: cgv.ErrProviderThrottled, want: func(reason *collectionpb.FailureReason) bool { return reason.GetProviderThrottled() != nil }},
+		{err: cgv.ErrCaptchaRequired, want: func(reason *collectionpb.FailureReason) bool { return reason.GetCaptchaRequired() != nil }},
+		{err: cgv.ErrAuthenticationRequired, want: func(reason *collectionpb.FailureReason) bool { return reason.GetAuthenticationRequired() != nil }},
+		{err: cgv.ErrUIContractChanged, want: func(reason *collectionpb.FailureReason) bool { return reason.GetUiContractChanged() != nil }},
+		{err: cgv.ErrSeatAvailabilityIncomplete, want: func(reason *collectionpb.FailureReason) bool { return reason.GetInvalidResult() != nil }},
+		{err: cgv.ErrProviderInvalidResult, want: func(reason *collectionpb.FailureReason) bool { return reason.GetInvalidResult() != nil }},
+		{err: cgv.ErrProviderServerError, want: func(reason *collectionpb.FailureReason) bool { return reason.GetProviderServerError() != nil }},
+		{err: context.DeadlineExceeded, want: func(reason *collectionpb.FailureReason) bool { return reason.GetTimeout() != nil }},
+		{err: cgv.ErrProviderTransport, want: func(reason *collectionpb.FailureReason) bool { return reason.GetProviderTransportFailed() != nil }},
+		{err: errLocalExecution, want: func(reason *collectionpb.FailureReason) bool { return reason.GetInvalidResult() != nil }},
+		{err: errors.New("unclassified local failure"), want: func(reason *collectionpb.FailureReason) bool { return reason.GetInvalidResult() != nil }},
 	} {
-		code, retryable := captureFailure(test.err)
-		if code != test.code || retryable != test.retryable {
-			t.Fatalf("captureFailure(%v) = %q/%t, want %q/%t", test.err, code, retryable, test.code, test.retryable)
+		if !test.want(captureFailureReason(test.err)) {
+			t.Fatalf("captureFailureReason(%v) returned the wrong typed reason", test.err)
 		}
 	}
-	result, err := runtime.assignmentResult(executionOutput{seatAvailability: &seatmappb.AvailabilitySnapshot{}}, nil, now, now.Add(time.Second))
-	if err != nil || result.GetFailed() == nil || result.GetFailed().GetReasonCode() != "invalid_result" {
+	deferred := captureDeferredReason(cgv.ErrTargetDateUnavailable)
+	if deferred == nil || deferred.GetTargetDateUnavailable() == nil {
+		t.Fatal("target-date stopping point was not deferred")
+	}
+	result, err := runtime.assignmentResult(executionOutput{liveSeat: &seatmappb.LiveSeatObservation{}}, nil, now, now.Add(time.Second))
+	if err != nil || result.GetFailed() == nil || result.GetFailed().GetReason().GetInvalidResult() == nil {
 		t.Fatalf("invalid availability result = %+v, %v", result, err)
 	}
 }
@@ -127,30 +139,27 @@ func TestRuntimeProcessesSeatAvailabilityAndPreservesProtectionReasons(t *testin
 func TestValidateSeatAvailabilityCaptureRejectsInvalidResults(t *testing.T) {
 	t.Parallel()
 	task := seatAvailabilityAssignmentTaskForProbe()
-	invalid := func(name string, task *observationpb.AssignmentTask, snapshot *seatmappb.AvailabilitySnapshot) {
+	invalid := func(name string, task *observationpb.AssignmentTask, snapshot *seatmappb.LiveSeatObservation) {
 		t.Helper()
-		if err := validateSeatAvailabilityCapture(task, snapshot); err == nil || !errors.Is(err, errInvalidExecutionOutput) {
+		if err := validateLiveSeatCapture(task, snapshot); err == nil || !errors.Is(err, errInvalidExecutionOutput) {
 			t.Fatalf("%s error = %v, want invalid execution output", name, err)
 		}
 	}
 
 	invalid("missing snapshot", task, nil)
-	invalid("invalid snapshot", task, &seatmappb.AvailabilitySnapshot{})
-	invalid("missing assignment target", nil, validAvailabilitySnapshot())
+	invalid("invalid snapshot", task, &seatmappb.LiveSeatObservation{})
+	invalid("missing assignment target", nil, validLiveSeatObservation("showtime", "auditorium"))
 	missingShowtime := seatAvailabilityAssignmentTaskForProbe()
 	missingShowtime.GetSeatAvailability().ClearShowtime()
-	invalid("missing showtime", missingShowtime, validAvailabilitySnapshot())
+	invalid("missing showtime", missingShowtime, validLiveSeatObservation("showtime", "auditorium"))
 
-	mismatched := validAvailabilitySnapshot()
-	mismatched.SetShowtimeId("cgv:showtime:other")
+	mismatched := validLiveSeatObservation("showtime", "auditorium")
+	mismatched.GetAvailability().SetShowtimeId("other")
 	invalid("mismatched identity", task, mismatched)
-
-	invalid("duplicate seats", task, availabilityWithSeats("A", "A"))
-	invalid("unsorted seats", task, availabilityWithSeats("B", "A"))
 }
 
 type fakeProbeSeatAvailabilityExecutor struct {
-	value *seatmappb.AvailabilitySnapshot
+	value *seatmappb.LiveSeatObservation
 	err   error
 	calls int
 }
@@ -158,7 +167,7 @@ type fakeProbeSeatAvailabilityExecutor struct {
 func (executor *fakeProbeSeatAvailabilityExecutor) CaptureSeatAvailability(
 	context.Context,
 	*observationpb.AssignmentTask,
-) (*seatmappb.AvailabilitySnapshot, error) {
+) (*seatmappb.LiveSeatObservation, error) {
 	executor.calls++
 	return executor.value, executor.err
 }
@@ -171,7 +180,7 @@ func (executor *fakeProbeSeatAvailabilityExecutor) Capture(
 }
 
 type fakeProbeSeatAvailabilityBrowser struct {
-	value  *seatmappb.AvailabilitySnapshot
+	value  *seatmappb.LiveSeatObservation
 	err    error
 	calls  int
 	closed bool
@@ -190,7 +199,7 @@ func (browser *fakeProbeSeatAvailabilityBrowser) Close() { browser.closed = true
 func (browser *fakeProbeSeatAvailabilityBrowser) CaptureSeatAvailability(
 	context.Context,
 	*observationpb.AssignmentTask,
-) (*seatmappb.AvailabilitySnapshot, error) {
+) (*seatmappb.LiveSeatObservation, error) {
 	browser.calls++
 	return browser.value, browser.err
 }
@@ -203,33 +212,32 @@ func seatAvailabilityAssignmentTaskForProbe() *observationpb.AssignmentTask {
 	theater := &catalogpb.Theater{}
 	theater.SetId(theaterID)
 	theater.SetProviderId(cgv.ProviderCGV)
-	theater.SetSourceKey(theaterSource)
+	theater.SetIdentity(cgv.NewTheaterIdentity(theaterSource))
 	theater.SetRegion("서울")
 	theater.SetName("용산아이파크몰")
 	auditorium := &catalogpb.Auditorium{}
 	auditorium.SetId(auditoriumID)
 	auditorium.SetTheaterId(theaterID)
-	auditorium.SetSourceKey(auditoriumSource)
+	auditorium.SetIdentity(cgv.NewAuditoriumIdentity(theaterSource, "0007"))
 	auditorium.SetName("IMAX관")
 	movie := &catalogpb.Movie{}
 	movieSource := "00001234"
 	movie.SetId(cgv.CatalogID(cgv.ProviderCGV, "movie", movieSource))
 	movie.SetProviderId(cgv.ProviderCGV)
-	movie.SetSourceKey(movieSource)
+	movie.SetIdentity(cgv.NewMovieIdentity(movieSource))
 	movie.SetTitle("Example Movie")
 	showtimeSource := theaterSource + "/2026-08-21/0007/0003"
 	showtime := &catalogpb.Showtime{}
 	showtime.SetId(cgv.CatalogID(cgv.ProviderCGV, "showtime", showtimeSource))
 	showtime.SetProviderId(cgv.ProviderCGV)
-	showtime.SetSourceKey(showtimeSource)
 	showtime.SetTheaterId(theaterID)
 	showtime.SetMovie(movie)
 	showtime.SetAuditorium(auditorium)
-	scheduleDate := &commonpb.LocalDate{}
-	scheduleDate.SetYear(2026)
-	scheduleDate.SetMonth(8)
-	scheduleDate.SetDay(21)
-	showtime.SetScheduleDate(scheduleDate)
+	showtimeIdentity, err := cgv.NewShowtimeIdentity(theaterSource, "2026-08-21", "0007", "0003")
+	if err != nil {
+		panic(err)
+	}
+	showtime.SetIdentity(showtimeIdentity)
 	startsAt := time.Date(2026, 8, 21, 20, 0, 0, 0, time.FixedZone("KST", 9*60*60))
 	showtime.SetStartsAt(timestamppb.New(startsAt))
 	showtime.SetEndsAt(timestamppb.New(startsAt.Add(2 * time.Hour)))
@@ -245,26 +253,4 @@ func seatAvailabilityAssignmentTaskForProbe() *observationpb.AssignmentTask {
 	egressPolicy.SetManagedScan(&commonpb.ManagedScanEgress{})
 	assignment.SetEgress(egressPolicy)
 	return assignment
-}
-
-func validAvailabilitySnapshot() *seatmappb.AvailabilitySnapshot {
-	snapshot := &seatmappb.AvailabilitySnapshot{}
-	snapshot.SetShowtimeId(cgv.CatalogID(cgv.ProviderCGV, "showtime", "0056/2026-08-21/0007/0003"))
-	snapshot.SetAuditoriumId(cgv.CatalogID(cgv.ProviderCGV, "auditorium", "0056/0007"))
-	snapshot.SetLayoutHash(strings.Repeat("a", 64))
-	snapshot.SetAvailableSeats([]*seatmappb.AvailableSeat{})
-	snapshot.SetObservedAt(timestamppb.Now())
-	return snapshot
-}
-
-func availabilityWithSeats(ids ...string) *seatmappb.AvailabilitySnapshot {
-	snapshot := validAvailabilitySnapshot()
-	seats := make([]*seatmappb.AvailableSeat, 0, len(ids))
-	for _, id := range ids {
-		seat := &seatmappb.AvailableSeat{}
-		seat.SetSeatId(id)
-		seats = append(seats, seat)
-	}
-	snapshot.SetAvailableSeats(seats)
-	return snapshot
 }

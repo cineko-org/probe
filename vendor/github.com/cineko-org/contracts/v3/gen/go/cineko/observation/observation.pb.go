@@ -8,9 +8,10 @@ package observation
 
 import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
-	catalog "github.com/cineko-org/contracts/gen/go/cineko/catalog"
-	common "github.com/cineko-org/contracts/gen/go/cineko/common"
-	seatmap "github.com/cineko-org/contracts/gen/go/cineko/seatmap"
+	catalog "github.com/cineko-org/contracts/v3/gen/go/cineko/catalog"
+	collection "github.com/cineko-org/contracts/v3/gen/go/cineko/collection"
+	common "github.com/cineko-org/contracts/v3/gen/go/cineko/common"
+	seatmap "github.com/cineko-org/contracts/v3/gen/go/cineko/seatmap"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -1606,19 +1607,75 @@ func (b0 Capture_builder) Build() *Capture {
 	return m0
 }
 
+type ScheduleCaptures struct {
+	state               protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Captures *[]*Capture            `protobuf:"bytes,1,rep,name=captures"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *ScheduleCaptures) Reset() {
+	*x = ScheduleCaptures{}
+	mi := &file_cineko_observation_observation_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScheduleCaptures) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScheduleCaptures) ProtoMessage() {}
+
+func (x *ScheduleCaptures) ProtoReflect() protoreflect.Message {
+	mi := &file_cineko_observation_observation_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ScheduleCaptures) GetCaptures() []*Capture {
+	if x != nil {
+		if x.xxx_hidden_Captures != nil {
+			return *x.xxx_hidden_Captures
+		}
+	}
+	return nil
+}
+
+func (x *ScheduleCaptures) SetCaptures(v []*Capture) {
+	x.xxx_hidden_Captures = &v
+}
+
+type ScheduleCaptures_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Captures []*Capture
+}
+
+func (b0 ScheduleCaptures_builder) Build() *ScheduleCaptures {
+	m0 := &ScheduleCaptures{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Captures = &b.Captures
+	return m0
+}
+
 type Completed struct {
-	state                       protoimpl.MessageState        `protogen:"opaque.v1"`
-	xxx_hidden_Captures         *[]*Capture                   `protobuf:"bytes,1,rep,name=captures"`
-	xxx_hidden_Catalog          *catalog.CatalogSnapshot      `protobuf:"bytes,2,opt,name=catalog"`
-	xxx_hidden_SeatMap          *seatmap.Snapshot             `protobuf:"bytes,3,opt,name=seat_map,json=seatMap"`
-	xxx_hidden_SeatAvailability *seatmap.AvailabilitySnapshot `protobuf:"bytes,4,opt,name=seat_availability,json=seatAvailability"`
-	unknownFields               protoimpl.UnknownFields
-	sizeCache                   protoimpl.SizeCache
+	state              protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Payload isCompleted_Payload    `protobuf_oneof:"payload"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *Completed) Reset() {
 	*x = Completed{}
-	mi := &file_cineko_observation_observation_proto_msgTypes[11]
+	mi := &file_cineko_observation_observation_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1630,7 +1687,7 @@ func (x *Completed) String() string {
 func (*Completed) ProtoMessage() {}
 
 func (x *Completed) ProtoReflect() protoreflect.Message {
-	mi := &file_cineko_observation_observation_proto_msgTypes[11]
+	mi := &file_cineko_observation_observation_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1641,10 +1698,10 @@ func (x *Completed) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-func (x *Completed) GetCaptures() []*Capture {
+func (x *Completed) GetSchedule() *ScheduleCaptures {
 	if x != nil {
-		if x.xxx_hidden_Captures != nil {
-			return *x.xxx_hidden_Captures
+		if x, ok := x.xxx_hidden_Payload.(*completed_Schedule); ok {
+			return x.Schedule
 		}
 	}
 	return nil
@@ -1652,107 +1709,256 @@ func (x *Completed) GetCaptures() []*Capture {
 
 func (x *Completed) GetCatalog() *catalog.CatalogSnapshot {
 	if x != nil {
-		return x.xxx_hidden_Catalog
+		if x, ok := x.xxx_hidden_Payload.(*completed_Catalog); ok {
+			return x.Catalog
+		}
 	}
 	return nil
 }
 
-func (x *Completed) GetSeatMap() *seatmap.Snapshot {
+func (x *Completed) GetLiveSeat() *seatmap.LiveSeatObservation {
 	if x != nil {
-		return x.xxx_hidden_SeatMap
+		if x, ok := x.xxx_hidden_Payload.(*completed_LiveSeat); ok {
+			return x.LiveSeat
+		}
 	}
 	return nil
 }
 
-func (x *Completed) GetSeatAvailability() *seatmap.AvailabilitySnapshot {
-	if x != nil {
-		return x.xxx_hidden_SeatAvailability
+func (x *Completed) SetSchedule(v *ScheduleCaptures) {
+	if v == nil {
+		x.xxx_hidden_Payload = nil
+		return
 	}
-	return nil
-}
-
-func (x *Completed) SetCaptures(v []*Capture) {
-	x.xxx_hidden_Captures = &v
+	x.xxx_hidden_Payload = &completed_Schedule{v}
 }
 
 func (x *Completed) SetCatalog(v *catalog.CatalogSnapshot) {
-	x.xxx_hidden_Catalog = v
+	if v == nil {
+		x.xxx_hidden_Payload = nil
+		return
+	}
+	x.xxx_hidden_Payload = &completed_Catalog{v}
 }
 
-func (x *Completed) SetSeatMap(v *seatmap.Snapshot) {
-	x.xxx_hidden_SeatMap = v
+func (x *Completed) SetLiveSeat(v *seatmap.LiveSeatObservation) {
+	if v == nil {
+		x.xxx_hidden_Payload = nil
+		return
+	}
+	x.xxx_hidden_Payload = &completed_LiveSeat{v}
 }
 
-func (x *Completed) SetSeatAvailability(v *seatmap.AvailabilitySnapshot) {
-	x.xxx_hidden_SeatAvailability = v
+func (x *Completed) HasPayload() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_Payload != nil
+}
+
+func (x *Completed) HasSchedule() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Payload.(*completed_Schedule)
+	return ok
 }
 
 func (x *Completed) HasCatalog() bool {
 	if x == nil {
 		return false
 	}
-	return x.xxx_hidden_Catalog != nil
+	_, ok := x.xxx_hidden_Payload.(*completed_Catalog)
+	return ok
 }
 
-func (x *Completed) HasSeatMap() bool {
+func (x *Completed) HasLiveSeat() bool {
 	if x == nil {
 		return false
 	}
-	return x.xxx_hidden_SeatMap != nil
+	_, ok := x.xxx_hidden_Payload.(*completed_LiveSeat)
+	return ok
 }
 
-func (x *Completed) HasSeatAvailability() bool {
-	if x == nil {
-		return false
+func (x *Completed) ClearPayload() {
+	x.xxx_hidden_Payload = nil
+}
+
+func (x *Completed) ClearSchedule() {
+	if _, ok := x.xxx_hidden_Payload.(*completed_Schedule); ok {
+		x.xxx_hidden_Payload = nil
 	}
-	return x.xxx_hidden_SeatAvailability != nil
 }
 
 func (x *Completed) ClearCatalog() {
-	x.xxx_hidden_Catalog = nil
+	if _, ok := x.xxx_hidden_Payload.(*completed_Catalog); ok {
+		x.xxx_hidden_Payload = nil
+	}
 }
 
-func (x *Completed) ClearSeatMap() {
-	x.xxx_hidden_SeatMap = nil
+func (x *Completed) ClearLiveSeat() {
+	if _, ok := x.xxx_hidden_Payload.(*completed_LiveSeat); ok {
+		x.xxx_hidden_Payload = nil
+	}
 }
 
-func (x *Completed) ClearSeatAvailability() {
-	x.xxx_hidden_SeatAvailability = nil
+const Completed_Payload_not_set_case case_Completed_Payload = 0
+const Completed_Schedule_case case_Completed_Payload = 1
+const Completed_Catalog_case case_Completed_Payload = 2
+const Completed_LiveSeat_case case_Completed_Payload = 3
+
+func (x *Completed) WhichPayload() case_Completed_Payload {
+	if x == nil {
+		return Completed_Payload_not_set_case
+	}
+	switch x.xxx_hidden_Payload.(type) {
+	case *completed_Schedule:
+		return Completed_Schedule_case
+	case *completed_Catalog:
+		return Completed_Catalog_case
+	case *completed_LiveSeat:
+		return Completed_LiveSeat_case
+	default:
+		return Completed_Payload_not_set_case
+	}
 }
 
 type Completed_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Captures         []*Capture
-	Catalog          *catalog.CatalogSnapshot
-	SeatMap          *seatmap.Snapshot
-	SeatAvailability *seatmap.AvailabilitySnapshot
+	// Fields of oneof xxx_hidden_Payload:
+	Schedule *ScheduleCaptures
+	Catalog  *catalog.CatalogSnapshot
+	LiveSeat *seatmap.LiveSeatObservation
+	// -- end of xxx_hidden_Payload
 }
 
 func (b0 Completed_builder) Build() *Completed {
 	m0 := &Completed{}
 	b, x := &b0, m0
 	_, _ = b, x
-	x.xxx_hidden_Captures = &b.Captures
-	x.xxx_hidden_Catalog = b.Catalog
-	x.xxx_hidden_SeatMap = b.SeatMap
-	x.xxx_hidden_SeatAvailability = b.SeatAvailability
+	if b.Schedule != nil {
+		x.xxx_hidden_Payload = &completed_Schedule{b.Schedule}
+	}
+	if b.Catalog != nil {
+		x.xxx_hidden_Payload = &completed_Catalog{b.Catalog}
+	}
+	if b.LiveSeat != nil {
+		x.xxx_hidden_Payload = &completed_LiveSeat{b.LiveSeat}
+	}
+	return m0
+}
+
+type case_Completed_Payload protoreflect.FieldNumber
+
+func (x case_Completed_Payload) String() string {
+	md := file_cineko_observation_observation_proto_msgTypes[12].Descriptor()
+	if x == 0 {
+		return "not set"
+	}
+	return protoimpl.X.MessageFieldStringOf(md, protoreflect.FieldNumber(x))
+}
+
+type isCompleted_Payload interface {
+	isCompleted_Payload()
+}
+
+type completed_Schedule struct {
+	Schedule *ScheduleCaptures `protobuf:"bytes,1,opt,name=schedule,oneof"`
+}
+
+type completed_Catalog struct {
+	Catalog *catalog.CatalogSnapshot `protobuf:"bytes,2,opt,name=catalog,oneof"`
+}
+
+type completed_LiveSeat struct {
+	LiveSeat *seatmap.LiveSeatObservation `protobuf:"bytes,3,opt,name=live_seat,json=liveSeat,oneof"`
+}
+
+func (*completed_Schedule) isCompleted_Payload() {}
+
+func (*completed_Catalog) isCompleted_Payload() {}
+
+func (*completed_LiveSeat) isCompleted_Payload() {}
+
+type Deferred struct {
+	state             protoimpl.MessageState     `protogen:"opaque.v1"`
+	xxx_hidden_Reason *collection.DeferredReason `protobuf:"bytes,1,opt,name=reason"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *Deferred) Reset() {
+	*x = Deferred{}
+	mi := &file_cineko_observation_observation_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Deferred) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Deferred) ProtoMessage() {}
+
+func (x *Deferred) ProtoReflect() protoreflect.Message {
+	mi := &file_cineko_observation_observation_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *Deferred) GetReason() *collection.DeferredReason {
+	if x != nil {
+		return x.xxx_hidden_Reason
+	}
+	return nil
+}
+
+func (x *Deferred) SetReason(v *collection.DeferredReason) {
+	x.xxx_hidden_Reason = v
+}
+
+func (x *Deferred) HasReason() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_Reason != nil
+}
+
+func (x *Deferred) ClearReason() {
+	x.xxx_hidden_Reason = nil
+}
+
+type Deferred_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Reason *collection.DeferredReason
+}
+
+func (b0 Deferred_builder) Build() *Deferred {
+	m0 := &Deferred{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Reason = b.Reason
 	return m0
 }
 
 type Failed struct {
-	state                  protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_ReasonCode  *string                `protobuf:"bytes,1,opt,name=reason_code,json=reasonCode"`
-	xxx_hidden_Retryable   bool                   `protobuf:"varint,2,opt,name=retryable"`
-	XXX_raceDetectHookData protoimpl.RaceDetectHookData
-	XXX_presence           [1]uint32
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	state             protoimpl.MessageState    `protogen:"opaque.v1"`
+	xxx_hidden_Reason *collection.FailureReason `protobuf:"bytes,1,opt,name=reason"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *Failed) Reset() {
 	*x = Failed{}
-	mi := &file_cineko_observation_observation_proto_msgTypes[12]
+	mi := &file_cineko_observation_observation_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1764,7 +1970,7 @@ func (x *Failed) String() string {
 func (*Failed) ProtoMessage() {}
 
 func (x *Failed) ProtoReflect() protoreflect.Message {
-	mi := &file_cineko_observation_observation_proto_msgTypes[12]
+	mi := &file_cineko_observation_observation_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1775,76 +1981,39 @@ func (x *Failed) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-func (x *Failed) GetReasonCode() string {
+func (x *Failed) GetReason() *collection.FailureReason {
 	if x != nil {
-		if x.xxx_hidden_ReasonCode != nil {
-			return *x.xxx_hidden_ReasonCode
-		}
-		return ""
+		return x.xxx_hidden_Reason
 	}
-	return ""
+	return nil
 }
 
-func (x *Failed) GetRetryable() bool {
-	if x != nil {
-		return x.xxx_hidden_Retryable
-	}
-	return false
+func (x *Failed) SetReason(v *collection.FailureReason) {
+	x.xxx_hidden_Reason = v
 }
 
-func (x *Failed) SetReasonCode(v string) {
-	x.xxx_hidden_ReasonCode = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 2)
-}
-
-func (x *Failed) SetRetryable(v bool) {
-	x.xxx_hidden_Retryable = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 2)
-}
-
-func (x *Failed) HasReasonCode() bool {
+func (x *Failed) HasReason() bool {
 	if x == nil {
 		return false
 	}
-	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
+	return x.xxx_hidden_Reason != nil
 }
 
-func (x *Failed) HasRetryable() bool {
-	if x == nil {
-		return false
-	}
-	return protoimpl.X.Present(&(x.XXX_presence[0]), 1)
-}
-
-func (x *Failed) ClearReasonCode() {
-	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
-	x.xxx_hidden_ReasonCode = nil
-}
-
-func (x *Failed) ClearRetryable() {
-	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 1)
-	x.xxx_hidden_Retryable = false
+func (x *Failed) ClearReason() {
+	x.xxx_hidden_Reason = nil
 }
 
 type Failed_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	ReasonCode *string
-	Retryable  *bool
+	Reason *collection.FailureReason
 }
 
 func (b0 Failed_builder) Build() *Failed {
 	m0 := &Failed{}
 	b, x := &b0, m0
 	_, _ = b, x
-	if b.ReasonCode != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 2)
-		x.xxx_hidden_ReasonCode = b.ReasonCode
-	}
-	if b.Retryable != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 2)
-		x.xxx_hidden_Retryable = *b.Retryable
-	}
+	x.xxx_hidden_Reason = b.Reason
 	return m0
 }
 
@@ -1862,7 +2031,7 @@ type AssignmentResult struct {
 
 func (x *AssignmentResult) Reset() {
 	*x = AssignmentResult{}
-	mi := &file_cineko_observation_observation_proto_msgTypes[13]
+	mi := &file_cineko_observation_observation_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1874,7 +2043,7 @@ func (x *AssignmentResult) String() string {
 func (*AssignmentResult) ProtoMessage() {}
 
 func (x *AssignmentResult) ProtoReflect() protoreflect.Message {
-	mi := &file_cineko_observation_observation_proto_msgTypes[13]
+	mi := &file_cineko_observation_observation_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1918,6 +2087,15 @@ func (x *AssignmentResult) GetCompleted() *Completed {
 	return nil
 }
 
+func (x *AssignmentResult) GetDeferred() *Deferred {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Outcome.(*assignmentResult_Deferred); ok {
+			return x.Deferred
+		}
+	}
+	return nil
+}
+
 func (x *AssignmentResult) GetFailed() *Failed {
 	if x != nil {
 		if x, ok := x.xxx_hidden_Outcome.(*assignmentResult_Failed); ok {
@@ -1946,6 +2124,14 @@ func (x *AssignmentResult) SetCompleted(v *Completed) {
 		return
 	}
 	x.xxx_hidden_Outcome = &assignmentResult_Completed{v}
+}
+
+func (x *AssignmentResult) SetDeferred(v *Deferred) {
+	if v == nil {
+		x.xxx_hidden_Outcome = nil
+		return
+	}
+	x.xxx_hidden_Outcome = &assignmentResult_Deferred{v}
 }
 
 func (x *AssignmentResult) SetFailed(v *Failed) {
@@ -1992,6 +2178,14 @@ func (x *AssignmentResult) HasCompleted() bool {
 	return ok
 }
 
+func (x *AssignmentResult) HasDeferred() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Outcome.(*assignmentResult_Deferred)
+	return ok
+}
+
 func (x *AssignmentResult) HasFailed() bool {
 	if x == nil {
 		return false
@@ -2023,6 +2217,12 @@ func (x *AssignmentResult) ClearCompleted() {
 	}
 }
 
+func (x *AssignmentResult) ClearDeferred() {
+	if _, ok := x.xxx_hidden_Outcome.(*assignmentResult_Deferred); ok {
+		x.xxx_hidden_Outcome = nil
+	}
+}
+
 func (x *AssignmentResult) ClearFailed() {
 	if _, ok := x.xxx_hidden_Outcome.(*assignmentResult_Failed); ok {
 		x.xxx_hidden_Outcome = nil
@@ -2031,7 +2231,8 @@ func (x *AssignmentResult) ClearFailed() {
 
 const AssignmentResult_Outcome_not_set_case case_AssignmentResult_Outcome = 0
 const AssignmentResult_Completed_case case_AssignmentResult_Outcome = 4
-const AssignmentResult_Failed_case case_AssignmentResult_Outcome = 5
+const AssignmentResult_Deferred_case case_AssignmentResult_Outcome = 5
+const AssignmentResult_Failed_case case_AssignmentResult_Outcome = 6
 
 func (x *AssignmentResult) WhichOutcome() case_AssignmentResult_Outcome {
 	if x == nil {
@@ -2040,6 +2241,8 @@ func (x *AssignmentResult) WhichOutcome() case_AssignmentResult_Outcome {
 	switch x.xxx_hidden_Outcome.(type) {
 	case *assignmentResult_Completed:
 		return AssignmentResult_Completed_case
+	case *assignmentResult_Deferred:
+		return AssignmentResult_Deferred_case
 	case *assignmentResult_Failed:
 		return AssignmentResult_Failed_case
 	default:
@@ -2055,6 +2258,7 @@ type AssignmentResult_builder struct {
 	FinishedAt *timestamppb.Timestamp
 	// Fields of oneof xxx_hidden_Outcome:
 	Completed *Completed
+	Deferred  *Deferred
 	Failed    *Failed
 	// -- end of xxx_hidden_Outcome
 }
@@ -2072,6 +2276,9 @@ func (b0 AssignmentResult_builder) Build() *AssignmentResult {
 	if b.Completed != nil {
 		x.xxx_hidden_Outcome = &assignmentResult_Completed{b.Completed}
 	}
+	if b.Deferred != nil {
+		x.xxx_hidden_Outcome = &assignmentResult_Deferred{b.Deferred}
+	}
 	if b.Failed != nil {
 		x.xxx_hidden_Outcome = &assignmentResult_Failed{b.Failed}
 	}
@@ -2081,7 +2288,7 @@ func (b0 AssignmentResult_builder) Build() *AssignmentResult {
 type case_AssignmentResult_Outcome protoreflect.FieldNumber
 
 func (x case_AssignmentResult_Outcome) String() string {
-	md := file_cineko_observation_observation_proto_msgTypes[13].Descriptor()
+	md := file_cineko_observation_observation_proto_msgTypes[15].Descriptor()
 	if x == 0 {
 		return "not set"
 	}
@@ -2096,11 +2303,17 @@ type assignmentResult_Completed struct {
 	Completed *Completed `protobuf:"bytes,4,opt,name=completed,oneof"`
 }
 
+type assignmentResult_Deferred struct {
+	Deferred *Deferred `protobuf:"bytes,5,opt,name=deferred,oneof"`
+}
+
 type assignmentResult_Failed struct {
-	Failed *Failed `protobuf:"bytes,5,opt,name=failed,oneof"`
+	Failed *Failed `protobuf:"bytes,6,opt,name=failed,oneof"`
 }
 
 func (*assignmentResult_Completed) isAssignmentResult_Outcome() {}
+
+func (*assignmentResult_Deferred) isAssignmentResult_Outcome() {}
 
 func (*assignmentResult_Failed) isAssignmentResult_Outcome() {}
 
@@ -2118,7 +2331,7 @@ type ResultReceipt struct {
 
 func (x *ResultReceipt) Reset() {
 	*x = ResultReceipt{}
-	mi := &file_cineko_observation_observation_proto_msgTypes[14]
+	mi := &file_cineko_observation_observation_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2130,7 +2343,7 @@ func (x *ResultReceipt) String() string {
 func (*ResultReceipt) ProtoMessage() {}
 
 func (x *ResultReceipt) ProtoReflect() protoreflect.Message {
-	mi := &file_cineko_observation_observation_proto_msgTypes[14]
+	mi := &file_cineko_observation_observation_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2353,7 +2566,7 @@ func (b0 ResultReceipt_builder) Build() *ResultReceipt {
 type case_ResultReceipt_Disposition protoreflect.FieldNumber
 
 func (x case_ResultReceipt_Disposition) String() string {
-	md := file_cineko_observation_observation_proto_msgTypes[14].Descriptor()
+	md := file_cineko_observation_observation_proto_msgTypes[16].Descriptor()
 	if x == 0 {
 		return "not set"
 	}
@@ -2384,7 +2597,7 @@ type Accepted struct {
 
 func (x *Accepted) Reset() {
 	*x = Accepted{}
-	mi := &file_cineko_observation_observation_proto_msgTypes[15]
+	mi := &file_cineko_observation_observation_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2396,7 +2609,7 @@ func (x *Accepted) String() string {
 func (*Accepted) ProtoMessage() {}
 
 func (x *Accepted) ProtoReflect() protoreflect.Message {
-	mi := &file_cineko_observation_observation_proto_msgTypes[15]
+	mi := &file_cineko_observation_observation_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2427,7 +2640,7 @@ type Duplicate struct {
 
 func (x *Duplicate) Reset() {
 	*x = Duplicate{}
-	mi := &file_cineko_observation_observation_proto_msgTypes[16]
+	mi := &file_cineko_observation_observation_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2439,7 +2652,7 @@ func (x *Duplicate) String() string {
 func (*Duplicate) ProtoMessage() {}
 
 func (x *Duplicate) ProtoReflect() protoreflect.Message {
-	mi := &file_cineko_observation_observation_proto_msgTypes[16]
+	mi := &file_cineko_observation_observation_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2466,7 +2679,7 @@ var File_cineko_observation_observation_proto protoreflect.FileDescriptor
 
 const file_cineko_observation_observation_proto_rawDesc = "" +
 	"\n" +
-	"$cineko/observation/observation.proto\x12\x12cineko.observation\x1a\x1bbuf/validate/validate.proto\x1a\x1ccineko/catalog/catalog.proto\x1a\x1acineko/common/common.proto\x1a\x1ccineko/seatmap/seatmap.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x11\n" +
+	"$cineko/observation/observation.proto\x12\x12cineko.observation\x1a\x1bbuf/validate/validate.proto\x1a\x1ccineko/catalog/catalog.proto\x1a\"cineko/collection/collection.proto\x1a\x1acineko/common/common.proto\x1a\x1ccineko/seatmap/seatmap.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x11\n" +
 	"\x0fScheduleCapture\"\x10\n" +
 	"\x0eCatalogCapture\"\x10\n" +
 	"\x0eSeatMapCapture\"\x19\n" +
@@ -2478,36 +2691,47 @@ const file_cineko_observation_observation_proto_rawDesc = "" +
 	"\x10seat_map_capture\x18\x03 \x01(\v2\".cineko.observation.SeatMapCaptureH\x00R\x0eseatMapCapture\x12i\n" +
 	"\x19seat_availability_capture\x18\x04 \x01(\v2+.cineko.observation.SeatAvailabilityCaptureH\x00R\x17seatAvailabilityCaptureB\x13\n" +
 	"\n" +
-	"capability\x12\x05\xbaH\x02\b\x01\"\xb3\x01\n" +
-	"\fScheduleTask\x121\n" +
-	"\atheater\x18\x01 \x01(\v2\x17.cineko.catalog.TheaterR\atheater\x12;\n" +
-	"\ftarget_dates\x18\x02 \x03(\v2\x18.cineko.common.LocalDateR\vtargetDates\x12\x16\n" +
-	"\x06locale\x18\x03 \x01(\tR\x06locale\x12\x1b\n" +
-	"\ttime_zone\x18\x04 \x01(\tR\btimeZone\"\xb2\x01\n" +
-	"\vCatalogTask\x121\n" +
-	"\atheater\x18\x01 \x01(\v2\x17.cineko.catalog.TheaterR\atheater\x12;\n" +
-	"\ftarget_dates\x18\x02 \x03(\v2\x18.cineko.common.LocalDateR\vtargetDates\x12\x16\n" +
-	"\x06locale\x18\x03 \x01(\tR\x06locale\x12\x1b\n" +
-	"\ttime_zone\x18\x04 \x01(\tR\btimeZone\"\xae\x02\n" +
-	"\vSeatMapTask\x121\n" +
-	"\atheater\x18\x01 \x01(\v2\x17.cineko.catalog.TheaterR\atheater\x12:\n" +
+	"capability\x12\x05\xbaH\x02\b\x01\"\xdf\x01\n" +
+	"\fScheduleTask\x129\n" +
+	"\atheater\x18\x01 \x01(\v2\x17.cineko.catalog.TheaterB\x06\xbaH\x03\xc8\x01\x01R\atheater\x12G\n" +
+	"\ftarget_dates\x18\x02 \x03(\v2\x18.cineko.common.LocalDateB\n" +
+	"\xbaH\a\x92\x01\x04\b\x01\x10\x0eR\vtargetDates\x12\"\n" +
+	"\x06locale\x18\x03 \x01(\tB\n" +
+	"\xbaH\a\xc8\x01\x01r\x02\x10\x01R\x06locale\x12'\n" +
+	"\ttime_zone\x18\x04 \x01(\tB\n" +
+	"\xbaH\a\xc8\x01\x01r\x02\x10\x01R\btimeZone\"\xde\x01\n" +
+	"\vCatalogTask\x129\n" +
+	"\atheater\x18\x01 \x01(\v2\x17.cineko.catalog.TheaterB\x06\xbaH\x03\xc8\x01\x01R\atheater\x12G\n" +
+	"\ftarget_dates\x18\x02 \x03(\v2\x18.cineko.common.LocalDateB\n" +
+	"\xbaH\a\x92\x01\x04\b\x01\x10\x0eR\vtargetDates\x12\"\n" +
+	"\x06locale\x18\x03 \x01(\tB\n" +
+	"\xbaH\a\xc8\x01\x01r\x02\x10\x01R\x06locale\x12'\n" +
+	"\ttime_zone\x18\x04 \x01(\tB\n" +
+	"\xbaH\a\xc8\x01\x01r\x02\x10\x01R\btimeZone\"\xd8\x02\n" +
+	"\vSeatMapTask\x129\n" +
+	"\atheater\x18\x01 \x01(\v2\x17.cineko.catalog.TheaterB\x06\xbaH\x03\xc8\x01\x01R\atheater\x12B\n" +
 	"\n" +
-	"auditorium\x18\x02 \x01(\v2\x1a.cineko.catalog.AuditoriumR\n" +
+	"auditorium\x18\x02 \x01(\v2\x1a.cineko.catalog.AuditoriumB\x06\xbaH\x03\xc8\x01\x01R\n" +
 	"auditorium\x124\n" +
-	"\bshowtime\x18\x03 \x01(\v2\x18.cineko.catalog.ShowtimeR\bshowtime\x12\x16\n" +
-	"\x06locale\x18\x04 \x01(\tR\x06locale\x12\x1b\n" +
-	"\ttime_zone\x18\x05 \x01(\tR\btimeZone\x12E\n" +
-	"\ftarget_dates\x18\x06 \x03(\v2\x18.cineko.common.LocalDateB\b\xbaH\x05\x92\x01\x02\x10\x0eR\vtargetDates\"\x9a\x02\n" +
+	"\bshowtime\x18\x03 \x01(\v2\x18.cineko.catalog.ShowtimeR\bshowtime\x12\"\n" +
+	"\x06locale\x18\x04 \x01(\tB\n" +
+	"\xbaH\a\xc8\x01\x01r\x02\x10\x01R\x06locale\x12'\n" +
+	"\ttime_zone\x18\x05 \x01(\tB\n" +
+	"\xbaH\a\xc8\x01\x01r\x02\x10\x01R\btimeZone\x12G\n" +
+	"\ftarget_dates\x18\x06 \x03(\v2\x18.cineko.common.LocalDateB\n" +
+	"\xbaH\a\x92\x01\x04\b\x01\x10\x0eR\vtargetDates\"\xa0\x02\n" +
 	"\x14SeatAvailabilityTask\x129\n" +
 	"\atheater\x18\x01 \x01(\v2\x17.cineko.catalog.TheaterB\x06\xbaH\x03\xc8\x01\x01R\atheater\x12B\n" +
 	"\n" +
 	"auditorium\x18\x02 \x01(\v2\x1a.cineko.catalog.AuditoriumB\x06\xbaH\x03\xc8\x01\x01R\n" +
 	"auditorium\x12<\n" +
-	"\bshowtime\x18\x03 \x01(\v2\x18.cineko.catalog.ShowtimeB\x06\xbaH\x03\xc8\x01\x01R\bshowtime\x12\x1f\n" +
-	"\x06locale\x18\x04 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x06locale\x12$\n" +
-	"\ttime_zone\x18\x05 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\btimeZone\"\xe8\x02\n" +
-	"\x0eAssignmentTask\x123\n" +
-	"\x06egress\x18\x01 \x01(\v2\x1b.cineko.common.EgressPolicyR\x06egress\x12>\n" +
+	"\bshowtime\x18\x03 \x01(\v2\x18.cineko.catalog.ShowtimeB\x06\xbaH\x03\xc8\x01\x01R\bshowtime\x12\"\n" +
+	"\x06locale\x18\x04 \x01(\tB\n" +
+	"\xbaH\a\xc8\x01\x01r\x02\x10\x01R\x06locale\x12'\n" +
+	"\ttime_zone\x18\x05 \x01(\tB\n" +
+	"\xbaH\a\xc8\x01\x01r\x02\x10\x01R\btimeZone\"\xf0\x02\n" +
+	"\x0eAssignmentTask\x12;\n" +
+	"\x06egress\x18\x01 \x01(\v2\x1b.cineko.common.EgressPolicyB\x06\xbaH\x03\xc8\x01\x01R\x06egress\x12>\n" +
 	"\bschedule\x18\x02 \x01(\v2 .cineko.observation.ScheduleTaskH\x00R\bschedule\x12;\n" +
 	"\acatalog\x18\x03 \x01(\v2\x1f.cineko.observation.CatalogTaskH\x00R\acatalog\x12<\n" +
 	"\bseat_map\x18\x04 \x01(\v2\x1f.cineko.observation.SeatMapTaskH\x00R\aseatMap\x12W\n" +
@@ -2521,104 +2745,117 @@ const file_cineko_observation_observation_proto_rawDesc = "" +
 	"observedAt\x12\x1d\n" +
 	"\n" +
 	"error_code\x18\x04 \x01(\tR\terrorCode\x126\n" +
-	"\tshowtimes\x18\x05 \x03(\v2\x18.cineko.catalog.ShowtimeR\tshowtimes\"\x87\x02\n" +
-	"\tCompleted\x127\n" +
-	"\bcaptures\x18\x01 \x03(\v2\x1b.cineko.observation.CaptureR\bcaptures\x129\n" +
-	"\acatalog\x18\x02 \x01(\v2\x1f.cineko.catalog.CatalogSnapshotR\acatalog\x123\n" +
-	"\bseat_map\x18\x03 \x01(\v2\x18.cineko.seatmap.SnapshotR\aseatMap\x12Q\n" +
-	"\x11seat_availability\x18\x04 \x01(\v2$.cineko.seatmap.AvailabilitySnapshotR\x10seatAvailability\"G\n" +
-	"\x06Failed\x12\x1f\n" +
-	"\vreason_code\x18\x01 \x01(\tR\n" +
-	"reasonCode\x12\x1c\n" +
-	"\tretryable\x18\x02 \x01(\bR\tretryable\"\xa8\x02\n" +
-	"\x10AssignmentResult\x12\x15\n" +
-	"\x06run_id\x18\x01 \x01(\tR\x05runId\x129\n" +
+	"\tshowtimes\x18\x05 \x03(\v2\x18.cineko.catalog.ShowtimeR\tshowtimes\"U\n" +
+	"\x10ScheduleCaptures\x12A\n" +
+	"\bcaptures\x18\x01 \x03(\v2\x1b.cineko.observation.CaptureB\b\xbaH\x05\x92\x01\x02\b\x01R\bcaptures\"\xe2\x01\n" +
+	"\tCompleted\x12B\n" +
+	"\bschedule\x18\x01 \x01(\v2$.cineko.observation.ScheduleCapturesH\x00R\bschedule\x12;\n" +
+	"\acatalog\x18\x02 \x01(\v2\x1f.cineko.catalog.CatalogSnapshotH\x00R\acatalog\x12B\n" +
+	"\tlive_seat\x18\x03 \x01(\v2#.cineko.seatmap.LiveSeatObservationH\x00R\bliveSeatB\x10\n" +
+	"\apayload\x12\x05\xbaH\x02\b\x01\"M\n" +
+	"\bDeferred\x12A\n" +
+	"\x06reason\x18\x01 \x01(\v2!.cineko.collection.DeferredReasonB\x06\xbaH\x03\xc8\x01\x01R\x06reason\"J\n" +
+	"\x06Failed\x12@\n" +
+	"\x06reason\x18\x01 \x01(\v2 .cineko.collection.FailureReasonB\x06\xbaH\x03\xc8\x01\x01R\x06reason\"\xfe\x03\n" +
+	"\x10AssignmentResult\x12!\n" +
+	"\x06run_id\x18\x01 \x01(\tB\n" +
+	"\xbaH\a\xc8\x01\x01r\x02\x10\x01R\x05runId\x12A\n" +
 	"\n" +
-	"started_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tstartedAt\x12;\n" +
-	"\vfinished_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"started_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampB\x06\xbaH\x03\xc8\x01\x01R\tstartedAt\x12C\n" +
+	"\vfinished_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampB\x06\xbaH\x03\xc8\x01\x01R\n" +
 	"finishedAt\x12=\n" +
-	"\tcompleted\x18\x04 \x01(\v2\x1d.cineko.observation.CompletedH\x00R\tcompleted\x124\n" +
-	"\x06failed\x18\x05 \x01(\v2\x1a.cineko.observation.FailedH\x00R\x06failedB\x10\n" +
-	"\aoutcome\x12\x05\xbaH\x02\b\x01\"\xff\x01\n" +
-	"\rResultReceipt\x12#\n" +
-	"\rassignment_id\x18\x01 \x01(\tR\fassignmentId\x12\x15\n" +
-	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12!\n" +
-	"\fcontent_hash\x18\x03 \x01(\tR\vcontentHash\x12:\n" +
+	"\tcompleted\x18\x04 \x01(\v2\x1d.cineko.observation.CompletedH\x00R\tcompleted\x12:\n" +
+	"\bdeferred\x18\x05 \x01(\v2\x1c.cineko.observation.DeferredH\x00R\bdeferred\x124\n" +
+	"\x06failed\x18\x06 \x01(\v2\x1a.cineko.observation.FailedH\x00R\x06failed:|\xbaHy\x1aw\n" +
+	"\x17assignment_run_interval\x127finished_at must be greater than or equal to started_at\x1a#this.finished_at >= this.started_atB\x10\n" +
+	"\aoutcome\x12\x05\xbaH\x02\b\x01\"\xb1\x02\n" +
+	"\rResultReceipt\x12/\n" +
+	"\rassignment_id\x18\x01 \x01(\tB\n" +
+	"\xbaH\a\xc8\x01\x01r\x02\x10\x01R\fassignmentId\x12!\n" +
+	"\x06run_id\x18\x02 \x01(\tB\n" +
+	"\xbaH\a\xc8\x01\x01r\x02\x10\x01R\x05runId\x12;\n" +
+	"\fcontent_hash\x18\x03 \x01(\tB\x18\xbaH\x15\xc8\x01\x01r\x102\x0e^[0-9a-f]{64}$R\vcontentHash\x12:\n" +
 	"\baccepted\x18\x04 \x01(\v2\x1c.cineko.observation.AcceptedH\x00R\baccepted\x12=\n" +
 	"\tduplicate\x18\x05 \x01(\v2\x1d.cineko.observation.DuplicateH\x00R\tduplicateB\x14\n" +
 	"\vdisposition\x12\x05\xbaH\x02\b\x01\"\n" +
 	"\n" +
 	"\bAccepted\"\v\n" +
-	"\tDuplicateBGZEgithub.com/cineko-org/contracts/gen/go/cineko/observation;observationb\beditionsp\xe9\a"
+	"\tDuplicateBJZHgithub.com/cineko-org/contracts/v3/gen/go/cineko/observation;observationb\beditionsp\xe9\a"
 
-var file_cineko_observation_observation_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_cineko_observation_observation_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_cineko_observation_observation_proto_goTypes = []any{
-	(*ScheduleCapture)(nil),              // 0: cineko.observation.ScheduleCapture
-	(*CatalogCapture)(nil),               // 1: cineko.observation.CatalogCapture
-	(*SeatMapCapture)(nil),               // 2: cineko.observation.SeatMapCapture
-	(*SeatAvailabilityCapture)(nil),      // 3: cineko.observation.SeatAvailabilityCapture
-	(*Capability)(nil),                   // 4: cineko.observation.Capability
-	(*ScheduleTask)(nil),                 // 5: cineko.observation.ScheduleTask
-	(*CatalogTask)(nil),                  // 6: cineko.observation.CatalogTask
-	(*SeatMapTask)(nil),                  // 7: cineko.observation.SeatMapTask
-	(*SeatAvailabilityTask)(nil),         // 8: cineko.observation.SeatAvailabilityTask
-	(*AssignmentTask)(nil),               // 9: cineko.observation.AssignmentTask
-	(*Capture)(nil),                      // 10: cineko.observation.Capture
-	(*Completed)(nil),                    // 11: cineko.observation.Completed
-	(*Failed)(nil),                       // 12: cineko.observation.Failed
-	(*AssignmentResult)(nil),             // 13: cineko.observation.AssignmentResult
-	(*ResultReceipt)(nil),                // 14: cineko.observation.ResultReceipt
-	(*Accepted)(nil),                     // 15: cineko.observation.Accepted
-	(*Duplicate)(nil),                    // 16: cineko.observation.Duplicate
-	(*catalog.Theater)(nil),              // 17: cineko.catalog.Theater
-	(*common.LocalDate)(nil),             // 18: cineko.common.LocalDate
-	(*catalog.Auditorium)(nil),           // 19: cineko.catalog.Auditorium
-	(*catalog.Showtime)(nil),             // 20: cineko.catalog.Showtime
-	(*common.EgressPolicy)(nil),          // 21: cineko.common.EgressPolicy
-	(*timestamppb.Timestamp)(nil),        // 22: google.protobuf.Timestamp
-	(*catalog.CatalogSnapshot)(nil),      // 23: cineko.catalog.CatalogSnapshot
-	(*seatmap.Snapshot)(nil),             // 24: cineko.seatmap.Snapshot
-	(*seatmap.AvailabilitySnapshot)(nil), // 25: cineko.seatmap.AvailabilitySnapshot
+	(*ScheduleCapture)(nil),             // 0: cineko.observation.ScheduleCapture
+	(*CatalogCapture)(nil),              // 1: cineko.observation.CatalogCapture
+	(*SeatMapCapture)(nil),              // 2: cineko.observation.SeatMapCapture
+	(*SeatAvailabilityCapture)(nil),     // 3: cineko.observation.SeatAvailabilityCapture
+	(*Capability)(nil),                  // 4: cineko.observation.Capability
+	(*ScheduleTask)(nil),                // 5: cineko.observation.ScheduleTask
+	(*CatalogTask)(nil),                 // 6: cineko.observation.CatalogTask
+	(*SeatMapTask)(nil),                 // 7: cineko.observation.SeatMapTask
+	(*SeatAvailabilityTask)(nil),        // 8: cineko.observation.SeatAvailabilityTask
+	(*AssignmentTask)(nil),              // 9: cineko.observation.AssignmentTask
+	(*Capture)(nil),                     // 10: cineko.observation.Capture
+	(*ScheduleCaptures)(nil),            // 11: cineko.observation.ScheduleCaptures
+	(*Completed)(nil),                   // 12: cineko.observation.Completed
+	(*Deferred)(nil),                    // 13: cineko.observation.Deferred
+	(*Failed)(nil),                      // 14: cineko.observation.Failed
+	(*AssignmentResult)(nil),            // 15: cineko.observation.AssignmentResult
+	(*ResultReceipt)(nil),               // 16: cineko.observation.ResultReceipt
+	(*Accepted)(nil),                    // 17: cineko.observation.Accepted
+	(*Duplicate)(nil),                   // 18: cineko.observation.Duplicate
+	(*catalog.Theater)(nil),             // 19: cineko.catalog.Theater
+	(*common.LocalDate)(nil),            // 20: cineko.common.LocalDate
+	(*catalog.Auditorium)(nil),          // 21: cineko.catalog.Auditorium
+	(*catalog.Showtime)(nil),            // 22: cineko.catalog.Showtime
+	(*common.EgressPolicy)(nil),         // 23: cineko.common.EgressPolicy
+	(*timestamppb.Timestamp)(nil),       // 24: google.protobuf.Timestamp
+	(*catalog.CatalogSnapshot)(nil),     // 25: cineko.catalog.CatalogSnapshot
+	(*seatmap.LiveSeatObservation)(nil), // 26: cineko.seatmap.LiveSeatObservation
+	(*collection.DeferredReason)(nil),   // 27: cineko.collection.DeferredReason
+	(*collection.FailureReason)(nil),    // 28: cineko.collection.FailureReason
 }
 var file_cineko_observation_observation_proto_depIdxs = []int32{
 	0,  // 0: cineko.observation.Capability.schedule_capture:type_name -> cineko.observation.ScheduleCapture
 	1,  // 1: cineko.observation.Capability.catalog_capture:type_name -> cineko.observation.CatalogCapture
 	2,  // 2: cineko.observation.Capability.seat_map_capture:type_name -> cineko.observation.SeatMapCapture
 	3,  // 3: cineko.observation.Capability.seat_availability_capture:type_name -> cineko.observation.SeatAvailabilityCapture
-	17, // 4: cineko.observation.ScheduleTask.theater:type_name -> cineko.catalog.Theater
-	18, // 5: cineko.observation.ScheduleTask.target_dates:type_name -> cineko.common.LocalDate
-	17, // 6: cineko.observation.CatalogTask.theater:type_name -> cineko.catalog.Theater
-	18, // 7: cineko.observation.CatalogTask.target_dates:type_name -> cineko.common.LocalDate
-	17, // 8: cineko.observation.SeatMapTask.theater:type_name -> cineko.catalog.Theater
-	19, // 9: cineko.observation.SeatMapTask.auditorium:type_name -> cineko.catalog.Auditorium
-	20, // 10: cineko.observation.SeatMapTask.showtime:type_name -> cineko.catalog.Showtime
-	18, // 11: cineko.observation.SeatMapTask.target_dates:type_name -> cineko.common.LocalDate
-	17, // 12: cineko.observation.SeatAvailabilityTask.theater:type_name -> cineko.catalog.Theater
-	19, // 13: cineko.observation.SeatAvailabilityTask.auditorium:type_name -> cineko.catalog.Auditorium
-	20, // 14: cineko.observation.SeatAvailabilityTask.showtime:type_name -> cineko.catalog.Showtime
-	21, // 15: cineko.observation.AssignmentTask.egress:type_name -> cineko.common.EgressPolicy
+	19, // 4: cineko.observation.ScheduleTask.theater:type_name -> cineko.catalog.Theater
+	20, // 5: cineko.observation.ScheduleTask.target_dates:type_name -> cineko.common.LocalDate
+	19, // 6: cineko.observation.CatalogTask.theater:type_name -> cineko.catalog.Theater
+	20, // 7: cineko.observation.CatalogTask.target_dates:type_name -> cineko.common.LocalDate
+	19, // 8: cineko.observation.SeatMapTask.theater:type_name -> cineko.catalog.Theater
+	21, // 9: cineko.observation.SeatMapTask.auditorium:type_name -> cineko.catalog.Auditorium
+	22, // 10: cineko.observation.SeatMapTask.showtime:type_name -> cineko.catalog.Showtime
+	20, // 11: cineko.observation.SeatMapTask.target_dates:type_name -> cineko.common.LocalDate
+	19, // 12: cineko.observation.SeatAvailabilityTask.theater:type_name -> cineko.catalog.Theater
+	21, // 13: cineko.observation.SeatAvailabilityTask.auditorium:type_name -> cineko.catalog.Auditorium
+	22, // 14: cineko.observation.SeatAvailabilityTask.showtime:type_name -> cineko.catalog.Showtime
+	23, // 15: cineko.observation.AssignmentTask.egress:type_name -> cineko.common.EgressPolicy
 	5,  // 16: cineko.observation.AssignmentTask.schedule:type_name -> cineko.observation.ScheduleTask
 	6,  // 17: cineko.observation.AssignmentTask.catalog:type_name -> cineko.observation.CatalogTask
 	7,  // 18: cineko.observation.AssignmentTask.seat_map:type_name -> cineko.observation.SeatMapTask
 	8,  // 19: cineko.observation.AssignmentTask.seat_availability:type_name -> cineko.observation.SeatAvailabilityTask
-	18, // 20: cineko.observation.Capture.target_date:type_name -> cineko.common.LocalDate
-	22, // 21: cineko.observation.Capture.observed_at:type_name -> google.protobuf.Timestamp
-	20, // 22: cineko.observation.Capture.showtimes:type_name -> cineko.catalog.Showtime
-	10, // 23: cineko.observation.Completed.captures:type_name -> cineko.observation.Capture
-	23, // 24: cineko.observation.Completed.catalog:type_name -> cineko.catalog.CatalogSnapshot
-	24, // 25: cineko.observation.Completed.seat_map:type_name -> cineko.seatmap.Snapshot
-	25, // 26: cineko.observation.Completed.seat_availability:type_name -> cineko.seatmap.AvailabilitySnapshot
-	22, // 27: cineko.observation.AssignmentResult.started_at:type_name -> google.protobuf.Timestamp
-	22, // 28: cineko.observation.AssignmentResult.finished_at:type_name -> google.protobuf.Timestamp
-	11, // 29: cineko.observation.AssignmentResult.completed:type_name -> cineko.observation.Completed
-	12, // 30: cineko.observation.AssignmentResult.failed:type_name -> cineko.observation.Failed
-	15, // 31: cineko.observation.ResultReceipt.accepted:type_name -> cineko.observation.Accepted
-	16, // 32: cineko.observation.ResultReceipt.duplicate:type_name -> cineko.observation.Duplicate
-	33, // [33:33] is the sub-list for method output_type
-	33, // [33:33] is the sub-list for method input_type
-	33, // [33:33] is the sub-list for extension type_name
-	33, // [33:33] is the sub-list for extension extendee
-	0,  // [0:33] is the sub-list for field type_name
+	20, // 20: cineko.observation.Capture.target_date:type_name -> cineko.common.LocalDate
+	24, // 21: cineko.observation.Capture.observed_at:type_name -> google.protobuf.Timestamp
+	22, // 22: cineko.observation.Capture.showtimes:type_name -> cineko.catalog.Showtime
+	10, // 23: cineko.observation.ScheduleCaptures.captures:type_name -> cineko.observation.Capture
+	11, // 24: cineko.observation.Completed.schedule:type_name -> cineko.observation.ScheduleCaptures
+	25, // 25: cineko.observation.Completed.catalog:type_name -> cineko.catalog.CatalogSnapshot
+	26, // 26: cineko.observation.Completed.live_seat:type_name -> cineko.seatmap.LiveSeatObservation
+	27, // 27: cineko.observation.Deferred.reason:type_name -> cineko.collection.DeferredReason
+	28, // 28: cineko.observation.Failed.reason:type_name -> cineko.collection.FailureReason
+	24, // 29: cineko.observation.AssignmentResult.started_at:type_name -> google.protobuf.Timestamp
+	24, // 30: cineko.observation.AssignmentResult.finished_at:type_name -> google.protobuf.Timestamp
+	12, // 31: cineko.observation.AssignmentResult.completed:type_name -> cineko.observation.Completed
+	13, // 32: cineko.observation.AssignmentResult.deferred:type_name -> cineko.observation.Deferred
+	14, // 33: cineko.observation.AssignmentResult.failed:type_name -> cineko.observation.Failed
+	17, // 34: cineko.observation.ResultReceipt.accepted:type_name -> cineko.observation.Accepted
+	18, // 35: cineko.observation.ResultReceipt.duplicate:type_name -> cineko.observation.Duplicate
+	36, // [36:36] is the sub-list for method output_type
+	36, // [36:36] is the sub-list for method input_type
+	36, // [36:36] is the sub-list for extension type_name
+	36, // [36:36] is the sub-list for extension extendee
+	0,  // [0:36] is the sub-list for field type_name
 }
 
 func init() { file_cineko_observation_observation_proto_init() }
@@ -2638,11 +2875,17 @@ func file_cineko_observation_observation_proto_init() {
 		(*assignmentTask_SeatMap)(nil),
 		(*assignmentTask_SeatAvailability)(nil),
 	}
-	file_cineko_observation_observation_proto_msgTypes[13].OneofWrappers = []any{
+	file_cineko_observation_observation_proto_msgTypes[12].OneofWrappers = []any{
+		(*completed_Schedule)(nil),
+		(*completed_Catalog)(nil),
+		(*completed_LiveSeat)(nil),
+	}
+	file_cineko_observation_observation_proto_msgTypes[15].OneofWrappers = []any{
 		(*assignmentResult_Completed)(nil),
+		(*assignmentResult_Deferred)(nil),
 		(*assignmentResult_Failed)(nil),
 	}
-	file_cineko_observation_observation_proto_msgTypes[14].OneofWrappers = []any{
+	file_cineko_observation_observation_proto_msgTypes[16].OneofWrappers = []any{
 		(*resultReceipt_Accepted)(nil),
 		(*resultReceipt_Duplicate)(nil),
 	}
@@ -2652,7 +2895,7 @@ func file_cineko_observation_observation_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_cineko_observation_observation_proto_rawDesc), len(file_cineko_observation_observation_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   17,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

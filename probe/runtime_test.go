@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	catalogpb "github.com/cineko-org/contracts/gen/go/cineko/catalog"
-	observationpb "github.com/cineko-org/contracts/gen/go/cineko/observation"
-	probepb "github.com/cineko-org/contracts/gen/go/cineko/probe"
-	seatmappb "github.com/cineko-org/contracts/gen/go/cineko/seatmap"
+	catalogpb "github.com/cineko-org/contracts/v3/gen/go/cineko/catalog"
+	observationpb "github.com/cineko-org/contracts/v3/gen/go/cineko/observation"
+	probepb "github.com/cineko-org/contracts/v3/gen/go/cineko/probe"
+	seatmappb "github.com/cineko-org/contracts/v3/gen/go/cineko/seatmap"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -66,7 +66,7 @@ func TestRuntimeProcessesCatalogAssignmentAndRejectsUnsupportedExecutor(t *testi
 	api.mu.Lock()
 	committed := api.committed
 	api.mu.Unlock()
-	if committed.GetCompleted() == nil || committed.GetCompleted().GetCatalog() != catalog || committed.GetCompleted().GetCaptures() != nil ||
+	if committed.GetCompleted() == nil || committed.GetCompleted().GetCatalog() != catalog || committed.GetCompleted().GetSchedule() != nil ||
 		executor.catalogCalls != 1 || executor.calls != 0 {
 		t.Fatalf("catalog result = %+v, schedule calls = %d, catalog calls = %d", committed, executor.calls, executor.catalogCalls)
 	}
@@ -101,14 +101,15 @@ func TestRuntimeProcessesSeatMapAssignment(t *testing.T) {
 	now := time.Now()
 	assignment := testAssignmentLease("seat_assignment", "lease", now.Add(time.Minute), now.Add(2*time.Minute), testAssignmentTask())
 	assignment.SetTask(seatMapAssignmentTask())
-	seatMap := seatMapSnapshot("seat_map", "auditorium", "hash")
+	seatMapTask := seatMapAssignmentTask().GetSeatMap()
+	seatMap := validLiveSeatObservation(seatMapTask.GetShowtime().GetId(), seatMapTask.GetAuditorium().GetId())
 	api := &fakeAPI{}
-	executor := &fakeExecutor{seatMap: seatMap}
+	executor := &fakeExecutor{liveSeat: seatMap}
 	runtime := newRuntimeForTest(t, api, executor)
 	if err := runtime.executeAssignment(context.Background(), Session{}, assignment); err != nil {
 		t.Fatal(err)
 	}
-	if api.committed.GetCompleted() == nil || api.committed.GetCompleted().GetSeatMap() != seatMap || executor.seatMapCalls != 1 {
+	if api.committed.GetCompleted() == nil || api.committed.GetCompleted().GetLiveSeat() != seatMap || executor.seatMapCalls != 1 {
 		t.Fatalf("seat-map result = %+v, calls = %d", api.committed, executor.seatMapCalls)
 	}
 
@@ -117,7 +118,7 @@ func TestRuntimeProcessesSeatMapAssignment(t *testing.T) {
 	if err := runtime.executeAssignment(context.Background(), Session{}, assignment); err != nil {
 		t.Fatal(err)
 	}
-	if api.committed.GetFailed() == nil || api.committed.GetCompleted().GetSeatMap() != nil {
+	if api.committed.GetFailed() == nil || api.committed.GetCompleted().GetLiveSeat() != nil {
 		t.Fatalf("unsupported seat-map result = %+v", api.committed)
 	}
 }
@@ -209,7 +210,7 @@ func TestRuntimeRejectsAssignmentClaimedDuringDrainTransition(t *testing.T) {
 	}
 	if api.committed.GetFailed() == nil || api.committed.GetRunId() == "" ||
 		api.committed.GetStartedAt().AsTime().IsZero() || api.committed.GetFinishedAt().AsTime().IsZero() ||
-		api.committed.GetFailed().GetReasonCode() != "capture_failed" {
+		api.committed.GetFailed().GetReason().GetInvalidResult() == nil {
 		t.Fatalf("drained claim result = %+v", api.committed)
 	}
 }
@@ -347,8 +348,7 @@ func TestRuntimeStateConfigurationAndHelpers(t *testing.T) {
 	}
 	if resultOutcome(resultForOutput(executionOutput{})) != "failed" ||
 		resultOutcome(resultForOutput(executionOutput{catalog: &catalogpb.CatalogSnapshot{}})) != "succeeded" ||
-		resultOutcome(resultForOutput(executionOutput{seatMap: &seatmappb.Snapshot{}})) != "succeeded" ||
-		resultOutcome(resultForOutput(executionOutput{seatAvailability: validAvailabilitySnapshot()})) != "succeeded" ||
+		resultOutcome(resultForOutput(executionOutput{liveSeat: validLiveSeatObservation("showtime", "auditorium")})) != "succeeded" ||
 		resultOutcome(resultForOutput(executionOutput{captures: []*observationpb.Capture{capture(true), capture(false)}})) != "degraded" ||
 		resultOutcome(resultForOutput(executionOutput{captures: []*observationpb.Capture{capture(false)}})) != "failed" ||
 		resultOutcome(resultForOutput(executionOutput{captures: []*observationpb.Capture{capture(true)}})) != "succeeded" {
@@ -742,10 +742,19 @@ func capture(complete bool) *observationpb.Capture {
 func resultForOutput(output executionOutput) *observationpb.AssignmentResult {
 	result := &observationpb.AssignmentResult{}
 	completed := &observationpb.Completed{}
-	completed.SetCaptures(output.captures)
-	completed.SetCatalog(output.catalog)
-	completed.SetSeatMap(output.seatMap)
-	completed.SetSeatAvailability(output.seatAvailability)
+	switch {
+	case output.liveSeat != nil:
+		completed.SetLiveSeat(output.liveSeat)
+	case output.catalog != nil:
+		completed.SetCatalog(output.catalog)
+	case len(output.captures) > 0:
+		schedule := &observationpb.ScheduleCaptures{}
+		schedule.SetCaptures(output.captures)
+		completed.SetSchedule(schedule)
+	}
+	result.SetRunId("run-test")
+	result.SetStartedAt(timestamppb.New(time.Unix(1, 0).UTC()))
+	result.SetFinishedAt(timestamppb.New(time.Unix(2, 0).UTC()))
 	result.SetCompleted(completed)
 	return result
 }
@@ -766,14 +775,6 @@ func catalogSnapshot(observedAt time.Time) *catalogpb.CatalogSnapshot {
 	return snapshot
 }
 
-func seatMapSnapshot(id, auditoriumID, layoutHash string) *seatmappb.Snapshot {
-	snapshot := &seatmappb.Snapshot{}
-	snapshot.SetId(id)
-	snapshot.SetAuditoriumId(auditoriumID)
-	snapshot.SetLayoutHash(layoutHash)
-	return snapshot
-}
-
 func newRuntimeForTest(t *testing.T, api API, executor Executor) *Runtime {
 	t.Helper()
 	runtime, err := NewRuntime(api, StaticCredential("credential"), executor, Config{
@@ -791,7 +792,7 @@ type fakeExecutor struct {
 	mu           sync.Mutex
 	captures     []*observationpb.Capture
 	catalog      *catalogpb.CatalogSnapshot
-	seatMap      *seatmappb.Snapshot
+	liveSeat     *seatmappb.LiveSeatObservation
 	err          error
 	catalogErr   error
 	wait         <-chan struct{}
@@ -803,11 +804,11 @@ type fakeExecutor struct {
 func (executor *fakeExecutor) CaptureSeatMap(
 	context.Context,
 	*observationpb.AssignmentTask,
-) (*seatmappb.Snapshot, error) {
+) (*seatmappb.LiveSeatObservation, error) {
 	executor.mu.Lock()
 	defer executor.mu.Unlock()
 	executor.seatMapCalls++
-	return executor.seatMap, executor.err
+	return executor.liveSeat, executor.err
 }
 
 type contextIgnoringExecutor struct {

@@ -1709,7 +1709,7 @@ const file_cineko_common_common_proto_rawDesc = "" +
 	"request_id\x18\x04 \x01(\tB\n" +
 	"\xbaH\a\xc8\x01\x01r\x02\x10\x01R\trequestId\"I\n" +
 	"\x10APIErrorResponse\x125\n" +
-	"\x05error\x18\x01 \x01(\v2\x17.cineko.common.APIErrorB\x06\xbaH\x03\xc8\x01\x01R\x05errorB=Z;github.com/cineko-org/contracts/gen/go/cineko/common;commonb\beditionsp\xe9\a"
+	"\x05error\x18\x01 \x01(\v2\x17.cineko.common.APIErrorB\x06\xbaH\x03\xc8\x01\x01R\x05errorB@Z>github.com/cineko-org/contracts/v3/gen/go/cineko/common;commonb\beditionsp\xe9\a"
 
 var file_cineko_common_common_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_cineko_common_common_proto_goTypes = []any{
