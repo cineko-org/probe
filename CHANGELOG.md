@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.0](https://github.com/cineko-org/probe/compare/v2.5.2...v2.6.0) (2026-08-22)
+
+
+### Features
+
+* capture exact live seat availability ([#21](https://github.com/cineko-org/probe/issues/21)) ([a182c9e](https://github.com/cineko-org/probe/commit/a182c9e80a8c482fb11a9d026bb2acadc3c91cec))
+
 ## [2.5.2](https://github.com/cineko-org/probe/compare/v2.5.1...v2.5.2) (2026-08-22)
 
 
