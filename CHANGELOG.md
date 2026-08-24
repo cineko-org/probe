@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.8.0](https://github.com/cineko-org/probe/compare/v2.7.5...v2.8.0) (2026-08-24)
+
+
+### Features
+
+* embed local CGV probe runtime ([#35](https://github.com/cineko-org/probe/issues/35)) ([2ed99b6](https://github.com/cineko-org/probe/commit/2ed99b682cb856e6f1f99411586f7c02e3c304df))
+
 ## [2.7.5](https://github.com/cineko-org/probe/compare/v2.7.4...v2.7.5) (2026-08-22)
 
 
