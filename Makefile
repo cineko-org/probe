@@ -1,6 +1,6 @@
 .PHONY: build check contract-check contract-release-check coverage install-playwright lint live-smoke security stealth-check test workflow-check
 
-GOLANGCI_LINT_VERSION ?= v2.12.2
+GOLANGCI_LINT_VERSION ?= v2.13.1
 GOVULNCHECK_VERSION ?= v1.6.0
 ACTIONLINT_VERSION ?= v1.7.10
 GO ?= GOWORK=off go
