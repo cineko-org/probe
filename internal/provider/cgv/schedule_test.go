@@ -1,6 +1,7 @@
 package cgv
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -34,6 +35,23 @@ func TestParseScheduleResponseUsesProviderIdentity(t *testing.T) {
 		entry.Showtime.MovieID != CatalogID(ProviderCGV, "movie", entry.Showtime.MovieSourceKey) ||
 		entry.Showtime.AuditoriumID != CatalogID(ProviderCGV, "auditorium", entry.Showtime.AuditoriumSourceKey) {
 		t.Fatalf("canonical identities = %+v", entry.Showtime)
+	}
+}
+
+func TestProviderClockLabelMatchesCGVDisplay(t *testing.T) {
+	t.Parallel()
+	for input, want := range map[string]string{
+		"0700":  "07:00",
+		"07:00": "07:00",
+		"2530":  "25:30",
+	} {
+		got, err := providerClockLabel(input)
+		if err != nil || got != want {
+			t.Fatalf("providerClockLabel(%q) = %q, %v; want %q", input, got, err, want)
+		}
+	}
+	if _, err := providerClockLabel("2460"); err == nil {
+		t.Fatal("providerClockLabel accepted an invalid minute")
 	}
 }
 
@@ -284,6 +302,46 @@ func TestDateSelectionLabelsPreserveTodayAndWeekdayVariants(t *testing.T) {
 	}
 }
 
+func TestAvailableScheduleDatesUsesEveryVisibleProviderDate(t *testing.T) {
+	t.Parallel()
+	location := time.FixedZone("KST", 9*60*60)
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, location)
+	dates, err := availableScheduleDatesFromLabels([]string{
+		"오늘 24", "화 25", "수 26", "로그인", "극장선택",
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"2026-08-24", "2026-08-25", "2026-08-26"}
+	if len(dates) != len(want) {
+		t.Fatalf("available dates = %v, want %v", dates, want)
+	}
+	for index := range want {
+		if dates[index] != want[index] {
+			t.Fatalf("available dates = %v, want %v", dates, want)
+		}
+	}
+	if _, err := availableScheduleDatesFromLabels([]string{"로그인"}, now); !errors.Is(err, ErrUIContractChanged) {
+		t.Fatalf("missing dates error = %v", err)
+	}
+}
+
+func TestFilterScheduleDatesByWeekdaysKeepsOnlyMonitorProviderDays(t *testing.T) {
+	t.Parallel()
+	dates := []string{"2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27"}
+	filtered, err := filterScheduleDatesByWeekdays(dates, []time.Weekday{time.Monday, time.Wednesday})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"2026-08-24", "2026-08-26"}
+	if len(filtered) != len(want) || filtered[0] != want[0] || filtered[1] != want[1] {
+		t.Fatalf("filtered dates = %v, want %v", filtered, want)
+	}
+	if _, err := filterScheduleDatesByWeekdays(dates, []time.Weekday{time.Weekday(7)}); !errors.Is(err, ErrIdentityMismatch) {
+		t.Fatalf("invalid weekday error = %v", err)
+	}
+}
+
 func TestSelectedDateMarkerMatchesCurrentCGVContract(t *testing.T) {
 	t.Parallel()
 	if !selectedButtonTitle("선택됨") {
@@ -293,6 +351,89 @@ func TestSelectedDateMarkerMatchesCurrentCGVContract(t *testing.T) {
 		if selectedButtonTitle(title) {
 			t.Fatalf("non-selected button title %q was accepted", title)
 		}
+	}
+}
+
+func TestScheduleResponseReadyWaitUsesCapturedResponse(t *testing.T) {
+	t.Parallel()
+	adapter := &Adapter{
+		ctx: context.Background(),
+		providerResponses: []capturedProviderResponse{{
+			path: scheduleResponsePath, status: 200, body: []byte(scheduleResponseFixture("20260812")),
+		}},
+	}
+	startedAt := time.Now()
+	if err := adapter.waitForScheduleResponseReady("2026-08-12", time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(startedAt); elapsed > 100*time.Millisecond {
+		t.Fatalf("already captured response waited %s", elapsed)
+	}
+	if len(adapter.providerResponses) != 1 {
+		t.Fatal("readiness wait consumed the provider response")
+	}
+}
+
+func TestScheduleResponseReadyWaitStopsAtTimeoutOrBrowserCancellation(t *testing.T) {
+	t.Parallel()
+	adapter := &Adapter{ctx: context.Background()}
+	if err := adapter.waitForScheduleResponseReady("2026-08-12", 10*time.Millisecond); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("timeout error = %v", err)
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	adapter.ctx = cancelled
+	if err := adapter.waitForScheduleResponseReady("2026-08-12", time.Second); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation error = %v", err)
+	}
+}
+
+func TestScheduleResponseReadyWaitIgnoresLatePreviousDate(t *testing.T) {
+	t.Parallel()
+	adapter := &Adapter{
+		ctx: context.Background(),
+		providerResponses: []capturedProviderResponse{{
+			path: scheduleResponsePath, status: 200, body: []byte(scheduleResponseFixture("20260812")),
+		}},
+	}
+	go func() {
+		time.Sleep(30 * time.Millisecond)
+		adapter.scheduleResponseMu.Lock()
+		adapter.providerResponses = append(adapter.providerResponses, capturedProviderResponse{
+			path: scheduleResponsePath, status: 200, body: []byte(scheduleResponseFixture("20260813")),
+		})
+		adapter.scheduleResponseMu.Unlock()
+	}()
+	startedAt := time.Now()
+	if err := adapter.waitForScheduleResponseReady("2026-08-13", time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(startedAt); elapsed < 20*time.Millisecond {
+		t.Fatalf("late response from the previous date ended the wait after %s", elapsed)
+	}
+}
+
+func TestScheduleResponseReadyAcceptsEmptyResponseForTargetURL(t *testing.T) {
+	t.Parallel()
+	adapter := &Adapter{
+		ctx: context.Background(),
+		providerResponses: []capturedProviderResponse{{
+			path:       scheduleResponsePath,
+			requestURL: "https://cgv.co.kr/api/v1/booking/searchMovScnInfo?siteNo=0013&scnYmd=20260813",
+			status:     200,
+			body:       []byte(`{"statusCode":0,"statusMessage":"success","data":[]}`),
+		}},
+	}
+	if err := adapter.waitForScheduleResponseReady("2026-08-13", time.Second); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestScheduleTheaterSelectionReusesCurrentPage(t *testing.T) {
+	t.Parallel()
+	adapter := &Adapter{ctx: context.Background(), selectedRegion: "서울", selectedTheater: "용산아이파크몰"}
+	if err := adapter.selectCinemaTheater("서울", "용산아이파크몰"); err != nil {
+		t.Fatalf("current theater selection was not reused: %v", err)
 	}
 }
 

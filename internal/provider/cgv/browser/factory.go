@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -74,11 +75,23 @@ func New(base cgv.BrowserConfig, egressManager *egress.Manager) (*Factory, error
 
 // NewFromEnvironment creates a factory using the Probe data and network settings.
 func NewFromEnvironment(dataDir string) (*Factory, error) {
-	egressManager, err := egress.NewFromEnvironment()
+	return NewFromEnvironmentWithLogger(dataDir, nil)
+}
+
+// NewFromEnvironmentWithLogger creates a factory and instruments its Soxy
+// control-plane HTTP client when logger is provided.
+func NewFromEnvironmentWithLogger(dataDir string, logger *slog.Logger) (*Factory, error) {
+	egressConfig, err := egress.ConfigFromEnvironment()
+	if err != nil {
+		return nil, err
+	}
+	egressConfig.Logger = logger
+	egressManager, err := egress.New(egressConfig)
 	if err != nil {
 		return nil, err
 	}
 	configuration := cgv.DefaultBrowserConfig()
+	configuration.Logger = logger
 	configuration.ProfileDir = filepath.Join(dataDir, "chrome-profile")
 	configuration.ArtifactsDir = filepath.Join(dataDir, "artifacts")
 	if chromePath := strings.TrimSpace(os.Getenv("CINEKO_CHROME_PATH")); chromePath != "" {
@@ -106,6 +119,11 @@ func (factory *Factory) Preflight(ctx context.Context) error {
 // ConfigureEgress atomically changes the proxy policy used by future browser
 // tasks. Existing tasks keep their original lease for their full lifetime.
 func (factory *Factory) ConfigureEgress(config egress.Config) error {
+	if config.Logger == nil {
+		factory.mu.Lock()
+		config.Logger = factory.base.Logger
+		factory.mu.Unlock()
+	}
 	manager, err := egress.New(config)
 	if err != nil {
 		return err

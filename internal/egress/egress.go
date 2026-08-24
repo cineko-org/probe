@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/big"
 	"net"
 	"net/http"
@@ -44,7 +45,7 @@ const (
 	// PurposeScan is anonymous provider observation.
 	PurposeScan Purpose = "scan"
 
-	// PolicyScanDefault is the Central assignment policy for a Probe scan. It
+	// PolicyScanDefault is the local default policy for an embedded scan. It
 	// prefers the locally configured static or Soxy proxy and otherwise uses
 	// direct egress. Managed deployments that require a proxy enforce that
 	// separately during startup with CINEKO_REQUIRE_PROXY=true.
@@ -74,6 +75,7 @@ type Config struct {
 	// Proxies, which applies one stable selection to either logical purpose.
 	ScanProxies      []Proxy
 	HTTPClient       *http.Client
+	Logger           *slog.Logger
 	Random           io.Reader
 	RenewInterval    time.Duration
 	MaxRenewFailures int
@@ -147,7 +149,7 @@ func New(config Config) (*Manager, error) {
 		maxRenewFailures:  config.MaxRenewFailures,
 	}
 	if config.SoxyURL != "" {
-		client, err := newSoxyClient(config.SoxyURL, config.SoxyToken, config.HTTPClient)
+		client, err := newSoxyClient(config.SoxyURL, config.SoxyToken, config.HTTPClient, config.Logger)
 		if err != nil {
 			return nil, err
 		}
@@ -358,7 +360,7 @@ func (manager *Manager) Acquire(parent context.Context, purpose Purpose) (*Lease
 }
 
 // AcquireForPolicy resolves an assignment egress policy against this Probe's
-// locally configured proxy inventory. Central chooses the policy, while proxy
+// locally configured proxy inventory. The Client chooses the policy, while proxy
 // addresses and credentials remain local to Probe.
 func (manager *Manager) AcquireForPolicy(
 	parent context.Context,

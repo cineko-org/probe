@@ -11,7 +11,13 @@ import (
 type CatalogMovie struct {
 	SourceKey string
 	Title     string
-	PosterURL string
+}
+
+type CatalogPoster struct {
+	MovieSourceKey string
+	MediaType      string
+	Data           []byte
+	ContentHash    string
 }
 
 type CatalogTheater struct {
@@ -22,13 +28,13 @@ type CatalogTheater struct {
 
 type CatalogCapture struct {
 	Movies   []CatalogMovie
+	Posters  []CatalogPoster
 	Theaters []CatalogTheater
 }
 
-// CaptureCatalog returns provider-keyed theaters. Movie records are populated
-// from schedule observations because this catalog page exposes display names,
-// not a trusted movNo identity.
-func (adapter *Adapter) CaptureCatalog(ctx context.Context) (CatalogCapture, error) {
+// CaptureCatalog returns provider-keyed theaters and the currently bookable
+// movie catalog exposed by CGV's movie-booking page.
+func (adapter *Adapter) CaptureCatalog(ctx context.Context, cachedPosterMovieIDs []string) (CatalogCapture, error) {
 	adapter.mu.Lock()
 	defer adapter.mu.Unlock()
 	if err := ctx.Err(); err != nil {
@@ -38,10 +44,11 @@ func (adapter *Adapter) CaptureCatalog(ctx context.Context) (CatalogCapture, err
 	if err != nil {
 		return CatalogCapture{}, err
 	}
-	// Movies are intentionally absent here: a title scraped from the page is
-	// display data. Movie identity is added only from observed movNo values in
-	// schedule responses, where CGV provides the provider key.
-	return CatalogCapture{Theaters: theaters}, nil
+	movies, posters, err := adapter.captureBookingMovies(ctx, cachedPosterMovieIDs)
+	if err != nil {
+		return CatalogCapture{}, err
+	}
+	return CatalogCapture{Theaters: theaters, Movies: movies, Posters: posters}, nil
 }
 
 func (adapter *Adapter) captureTheaters(ctx context.Context) ([]CatalogTheater, error) {

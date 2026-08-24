@@ -1845,8 +1845,8 @@ func (b0 AvailabilitySnapshot_builder) Build() *AvailabilitySnapshot {
 	return m0
 }
 
-// LiveSeatObservation is the atomic Probe result for an exact showtime. The
-// provider response supplies both the current layout and current availability.
+// LiveSeatObservation is one authenticated Client observation for an exact
+// showtime. One provider response supplies both layout and availability.
 type LiveSeatObservation struct {
 	state                   protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_Layout       *Snapshot              `protobuf:"bytes,1,opt,name=layout"`
@@ -2021,8 +2021,8 @@ type Resolution_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	// A cached layout may coexist with any collection state. The absence of a
-	// snapshot is valid only while collection is in progress; Central must never
-	// expose idle without a current snapshot.
+	// snapshot is valid only while collection is in progress; the Client must
+	// never expose idle without a current snapshot.
 	Snapshot *Snapshot
 	State    *collection.State
 }

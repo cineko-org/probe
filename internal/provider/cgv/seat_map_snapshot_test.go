@@ -1,7 +1,6 @@
 package cgv
 
 import (
-	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -10,18 +9,14 @@ import (
 	catalogpb "github.com/cineko-org/contracts/v3/gen/go/cineko/catalog"
 	commonpb "github.com/cineko-org/contracts/v3/gen/go/cineko/common"
 	observationpb "github.com/cineko-org/contracts/v3/gen/go/cineko/observation"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func TestSeatMapTaskRequiresCanonicalExactShowtime(t *testing.T) {
+func TestSeatMapTaskRequiresCanonicalAuditorium(t *testing.T) {
 	t.Parallel()
 	theaterSource := "0056"
 	theaterID := CatalogID(ProviderCGV, "theater", theaterSource)
 	auditoriumSource := theaterSource + "/0007"
 	auditoriumID := CatalogID(ProviderCGV, "auditorium", auditoriumSource)
-	showtimeSource := theaterSource + "/2026-08-21/0007/0003"
-	showtimeID := CatalogID(ProviderCGV, "showtime", showtimeSource)
-	startsAt := time.Date(2026, 8, 21, 20, 0, 0, 0, time.FixedZone("KST", 9*60*60))
 	theater := &catalogpb.Theater{}
 	theater.SetId(theaterID)
 	theater.SetProviderId(ProviderCGV)
@@ -33,28 +28,10 @@ func TestSeatMapTaskRequiresCanonicalExactShowtime(t *testing.T) {
 	auditorium.SetTheaterId(theaterID)
 	auditorium.SetIdentity(NewAuditoriumIdentity(theaterSource, "0007"))
 	auditorium.SetName("IMAX관")
-	movie := &catalogpb.Movie{}
-	movie.SetId(CatalogID(ProviderCGV, "movie", "00001234"))
-	movie.SetProviderId(ProviderCGV)
-	movie.SetIdentity(NewMovieIdentity("00001234"))
-	movie.SetTitle("Example Movie")
-	showtime := &catalogpb.Showtime{}
-	showtime.SetId(showtimeID)
-	showtime.SetProviderId(ProviderCGV)
-	showtime.SetTheaterId(theaterID)
-	showtime.SetAuditorium(auditorium)
-	showtime.SetMovie(movie)
-	showtimeIdentity, err := NewShowtimeIdentity(theaterSource, "2026-08-21", "0007", "0003")
-	if err != nil {
-		t.Fatal(err)
-	}
-	showtime.SetIdentity(showtimeIdentity)
-	showtime.SetStartsAt(timestamppb.New(startsAt))
-	showtime.SetEndsAt(timestamppb.New(startsAt.Add(2 * time.Hour)))
 	seatTask := &observationpb.SeatMapTask{}
 	seatTask.SetTheater(theater)
 	seatTask.SetAuditorium(auditorium)
-	seatTask.SetShowtime(showtime)
+	seatTask.SetLocale("ko-KR")
 	seatTask.SetTimeZone("Asia/Seoul")
 	task := &observationpb.AssignmentTask{}
 	task.SetSeatMap(seatTask)
@@ -64,90 +41,23 @@ func TestSeatMapTaskRequiresCanonicalExactShowtime(t *testing.T) {
 	if err := validateSeatMapTask(task); err != nil {
 		t.Fatalf("canonical task rejected: %v", err)
 	}
-	entry := scheduleEntry{Showtime: ScheduleShowtime{
-		ID: showtimeID, ProviderID: ProviderCGV, SourceKey: showtimeSource, TheaterID: theaterID,
-		MovieID: task.GetSeatMap().GetShowtime().GetMovie().GetId(), AuditoriumID: auditoriumID,
-	}}
-	if _, err := exactSeatMapShowtime([]scheduleEntry{entry}, task.GetSeatMap().GetShowtime()); err != nil {
-		t.Fatalf("exact provider showtime rejected: %v", err)
-	}
-	wrongAuditoriumIdentity, err := NewShowtimeIdentity(theaterSource, "2026-08-21", "0008", "0003")
-	if err != nil {
-		t.Fatal(err)
-	}
-	showtime.SetIdentity(wrongAuditoriumIdentity)
-	showtime.SetId(CatalogID(ProviderCGV, "showtime", theaterSource+"/2026-08-21/0008/0003"))
-	if err := validateSeatMapTask(task); !errors.Is(err, ErrIdentityMismatch) {
-		t.Fatalf("showtime/auditorium relation error = %v", err)
-	}
-	wrongTheaterIdentity, err := NewShowtimeIdentity("0099", "2026-08-21", "0007", "0003")
-	if err != nil {
-		t.Fatal(err)
-	}
-	showtime.SetIdentity(wrongTheaterIdentity)
-	showtime.SetId(CatalogID(ProviderCGV, "showtime", "0099/2026-08-21/0007/0003"))
-	if err := validateSeatMapTask(task); !errors.Is(err, ErrIdentityMismatch) {
-		t.Fatalf("showtime/theater relation error = %v", err)
-	}
-	showtime.SetIdentity(showtimeIdentity)
-	showtime.SetId(showtimeID)
-	task.GetSeatMap().GetShowtime().GetIdentity().GetCgv().GetScheduleDate().SetYear(0)
+	auditorium.SetTheaterId("wrong-theater")
 	if err := validateSeatMapTask(task); err == nil {
-		t.Fatal("year-zero exact showtime accepted")
-	}
-	task.GetSeatMap().GetShowtime().GetIdentity().GetCgv().GetScheduleDate().SetYear(2026)
-	task.GetSeatMap().GetShowtime().GetIdentity().GetCgv().SetSequence("")
-	if err := validateSeatMapTask(task); err == nil {
-		t.Fatal("noncanonical showtime accepted")
+		t.Fatal("seat-map task with mismatched auditorium theater accepted")
 	}
 }
 
-func TestSeatMapTaskAcceptsExploratoryDateWindow(t *testing.T) {
+func TestFirstSeatMapShowtimeChoosesFutureBookableAuditoriumContext(t *testing.T) {
 	t.Parallel()
-	theaterSource := "0056"
-	theaterID := CatalogID(ProviderCGV, "theater", theaterSource)
-	auditoriumSource := theaterSource + "/0007"
-	auditoriumID := CatalogID(ProviderCGV, "auditorium", auditoriumSource)
-	theater := &catalogpb.Theater{}
-	theater.SetId(theaterID)
-	theater.SetProviderId(ProviderCGV)
-	theater.SetIdentity(NewTheaterIdentity(theaterSource))
-	theater.SetRegion("서울")
-	theater.SetName("용산아이파크몰")
-	auditorium := &catalogpb.Auditorium{}
-	auditorium.SetId(auditoriumID)
-	auditorium.SetTheaterId(theaterID)
-	auditorium.SetIdentity(NewAuditoriumIdentity(theaterSource, "0007"))
-	auditorium.SetName("IMAX관")
-	targetDate := &commonpb.LocalDate{}
-	targetDate.SetYear(2026)
-	targetDate.SetMonth(8)
-	targetDate.SetDay(21)
-	seatTask := &observationpb.SeatMapTask{}
-	seatTask.SetTheater(theater)
-	seatTask.SetAuditorium(auditorium)
-	seatTask.SetTargetDates([]*commonpb.LocalDate{targetDate})
-	seatTask.SetTimeZone("Asia/Seoul")
-	task := &observationpb.AssignmentTask{}
-	task.SetSeatMap(seatTask)
-	if err := validateSeatMapTask(task); err != nil {
-		t.Fatalf("exploratory task rejected: %v", err)
-	}
-	seatTask.SetTargetDates(nil)
-	if err := validateSeatMapTask(task); err == nil {
-		t.Fatal("seat-map task without showtime or dates accepted")
-	}
-}
-
-func TestFirstSeatMapShowtimeMatchesAuditoriumIncludingSoldOut(t *testing.T) {
-	t.Parallel()
+	now := time.Date(2026, 8, 23, 18, 0, 0, 0, time.FixedZone("KST", 9*60*60))
 	entries := []scheduleEntry{
-		{Showtime: ScheduleShowtime{ID: "wrong-auditorium", AuditoriumID: "auditorium-2", AvailableSeats: 20}},
-		{Showtime: ScheduleShowtime{ID: "sold-out", AuditoriumID: "auditorium-1", SoldOut: true}},
-		{Showtime: ScheduleShowtime{ID: "bookable", AuditoriumID: "auditorium-1", AvailableSeats: 1}},
+		{Showtime: ScheduleShowtime{ID: "wrong-auditorium", AuditoriumID: "auditorium-2", Date: "2026-08-23", StartsAt: "1900", EndsAt: "2100", AvailableSeats: 20}},
+		{Showtime: ScheduleShowtime{ID: "ended", AuditoriumID: "auditorium-1", Date: "2026-08-23", StartsAt: "1745", EndsAt: "2020", AvailableSeats: 1}},
+		{Showtime: ScheduleShowtime{ID: "sold-out", AuditoriumID: "auditorium-1", Date: "2026-08-23", StartsAt: "2115", EndsAt: "2345", SoldOut: true}},
+		{Showtime: ScheduleShowtime{ID: "bookable", AuditoriumID: "auditorium-1", Date: "2026-08-23", StartsAt: "2115", EndsAt: "2345", AvailableSeats: 1}},
 	}
-	showtime, found := firstSeatMapShowtime(entries, "auditorium-1")
-	if !found || showtime.ID != "sold-out" {
+	showtime, found := firstSeatMapShowtimeAt(entries, "auditorium-1", now)
+	if !found || showtime.ID != "bookable" {
 		t.Fatalf("seat-map showtime = %+v, %v", showtime, found)
 	}
 }
@@ -180,6 +90,18 @@ func TestParseSeatMapLayoutPreservesStaticSemantics(t *testing.T) {
 	}
 	if hash != "c64db650f1c11a6de3988acbdd5a92b1cbe01115835073c9c0bc080c2b6734f8" {
 		t.Fatalf("canonical fixture layout hash = %s", hash)
+	}
+}
+
+func TestParseSeatMapLayoutDoesNotTreatBookingCapacityAsPhysicalSeatCount(t *testing.T) {
+	t.Parallel()
+	body := strings.Replace(seatMapFixture, `"stcnt":2`, `"stcnt":1`, 1)
+	layout, err := parseSeatMapLayout([]byte(body), "auditorium-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(layout.GetSeats()) != 2 {
+		t.Fatalf("physical seat count = %d", len(layout.GetSeats()))
 	}
 }
 

@@ -66,3 +66,13 @@ func parseProviderClock(raw string) (int, int, error) {
 	}
 	return hour, minute, nil
 }
+
+// providerClockLabel returns the exact clock label rendered by CGV while
+// preserving service-day hours after midnight (for example 25:30).
+func providerClockLabel(raw string) (string, error) {
+	hour, minute, err := parseProviderClock(raw)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%02d:%02d", hour, minute), nil
+}

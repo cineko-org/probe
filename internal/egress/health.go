@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/cineko-org/probe/v2/internal/telemetry"
 )
 
 // The preflight checks that the leased proxy can reach the public internet.
@@ -25,7 +28,13 @@ func ValidateConfig(ctx context.Context, config Config) error {
 	}
 	probe := config.Probe
 	if probe == nil {
-		probe = probeProxy
+		if config.Logger == nil {
+			probe = probeProxy
+		} else {
+			probe = func(probeContext context.Context, proxy Proxy) error {
+				return probeProxyWithLogger(probeContext, proxy, config.Logger)
+			}
+		}
 	}
 	proxies := append([]Proxy(nil), config.Proxies...)
 	proxies = append(proxies, config.ScanProxies...)
@@ -66,6 +75,10 @@ func validateSoxySlots(ctx context.Context, manager *Manager, probe func(context
 }
 
 func probeProxy(ctx context.Context, proxy Proxy) error {
+	return probeProxyWithLogger(ctx, proxy, nil)
+}
+
+func probeProxyWithLogger(ctx context.Context, proxy Proxy, logger *slog.Logger) error {
 	parsed, err := url.Parse(proxy.Server)
 	if err != nil {
 		return err
@@ -79,6 +92,9 @@ func probeProxy(ctx context.Context, proxy Proxy) error {
 	}
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, Timeout: 10 * time.Second}
+	if logger != nil {
+		client = telemetry.HTTPClient(logger, client)
+	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, defaultProbeURL, nil)
 	if err != nil {
 		return err
