@@ -4,7 +4,7 @@ GOLANGCI_LINT_VERSION ?= v2.12.2
 GOVULNCHECK_VERSION ?= v1.6.0
 ACTIONLINT_VERSION ?= v1.7.10
 GO ?= GOWORK=off go
-GO_FILES := $(shell find cmd internal probe -name '*.go' -type f)
+GO_FILES := $(shell find internal probe -name '*.go' -type f)
 CINEKO_LOCAL_DATA_DIR ?= $(if $(strip $(CINEKO_DATA_DIR)),$(CINEKO_DATA_DIR),$(HOME)/cineko)
 PLAYWRIGHT_DRIVER_VERSION ?= $(shell bash scripts/playwright-version.sh driver)
 PLAYWRIGHT_ROOT ?= $(CINEKO_LOCAL_DATA_DIR)/runtime/playwright
@@ -62,7 +62,7 @@ contract-check:
 	@test "$$(grep -Ec '^[[:space:]]*github.com/cineko-org/contracts(/v[0-9]+)?[[:space:]]' go.mod)" -eq 1
 	@test "$$(grep -Ec '^# github.com/cineko-org/contracts/v3 v3\.7\.0$$' vendor/modules.txt)" -eq 1
 	@test "$$(grep -Ec '^# github.com/cineko-org/contracts(/v[0-9]+)? v' vendor/modules.txt)" -eq 1
-	@! grep -R -En --include='*.go' 'github.com/cineko-org/contracts(/v[0-9]+)?/' cmd internal probe | grep -Ev 'github.com/cineko-org/contracts/v3/'
+	@! grep -R -En --include='*.go' 'github.com/cineko-org/contracts(/v[0-9]+)?/' internal probe | grep -Ev 'github.com/cineko-org/contracts/v3/'
 
 contract-release-check: contract-check
 
