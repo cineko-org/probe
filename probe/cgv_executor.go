@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	catalogpb "github.com/cineko-org/contracts/v3/gen/go/cineko/catalog"
@@ -23,71 +24,56 @@ type scheduleBrowser interface {
 	Close()
 }
 
+type weekdayScheduleBrowser interface {
+	CaptureSchedulesForWeekdays(context.Context, cgv.ScheduleTheater, []time.Weekday) ([]cgv.ScheduleCapture, error)
+}
+
 type catalogBrowser interface {
-	CaptureCatalog(context.Context) (cgv.CatalogCapture, error)
+	CaptureCatalog(context.Context, []string) (cgv.CatalogCapture, error)
 }
 
 type seatMapBrowser interface {
-	CaptureSeatMap(context.Context, *observationpb.AssignmentTask) (*seatmappb.LiveSeatObservation, error)
+	CaptureSeatMap(context.Context, *observationpb.AssignmentTask) (*seatmappb.Snapshot, error)
 }
 
-type seatAvailabilityBrowser interface {
-	CaptureSeatAvailability(context.Context, *observationpb.AssignmentTask) (*seatmappb.LiveSeatObservation, error)
-}
+type seatMapCapture func(context.Context, *observationpb.AssignmentTask) (*seatmappb.Snapshot, error)
 
-type liveSeatCapture func(context.Context, *observationpb.AssignmentTask) (*seatmappb.LiveSeatObservation, error)
+var errLocalExecution = errors.New("local scanner invariant failed")
+
+type SeatMapExecutor interface {
+	CaptureSeatMap(context.Context, *observationpb.AssignmentTask) (*seatmappb.Snapshot, error)
+}
 
 type CGVExecutor struct {
-	open             func(context.Context, cgvbrowser.Task) (scheduleBrowser, error)
-	clock            func() time.Time
-	seatMap          SeatMapExecutor
-	seatAvailability SeatAvailabilityExecutor
+	open    func(context.Context, cgvbrowser.Task) (scheduleBrowser, error)
+	clock   func() time.Time
+	seatMap SeatMapExecutor
+}
+
+// ScheduleSession owns one anonymous managed-scan browser. It never carries a
+// user session and can be reused across schedule rounds until the Soxy lease or
+// browser becomes unhealthy.
+type ScheduleSession struct {
+	executor *CGVExecutor
+	browser  scheduleBrowser
+	mu       sync.Mutex
 }
 
 func (executor *CGVExecutor) CaptureSeatMap(
 	ctx context.Context,
 	task *observationpb.AssignmentTask,
-) (*seatmappb.LiveSeatObservation, error) {
+) (*seatmappb.Snapshot, error) {
 	if task.GetSeatMap() == nil {
 		return nil, fmt.Errorf("%w: unsupported Probe task kind", errLocalExecution)
 	}
-	var delegate liveSeatCapture
-	if executor.seatMap != nil {
-		delegate = executor.seatMap.CaptureSeatMap
-	}
-	return executor.captureLiveSeat(ctx, task, "seat-map", cgv.ValidateSeatMapTask, delegate, seatMapBrowserCapture)
-}
-
-func (executor *CGVExecutor) CaptureSeatAvailability(
-	ctx context.Context,
-	task *observationpb.AssignmentTask,
-) (*seatmappb.LiveSeatObservation, error) {
-	if task.GetSeatAvailability() == nil {
-		return nil, fmt.Errorf("%w: unsupported Probe task kind", errLocalExecution)
-	}
-	var delegate liveSeatCapture
-	if executor.seatAvailability != nil {
-		delegate = executor.seatAvailability.CaptureSeatAvailability
-	}
-	return executor.captureLiveSeat(ctx, task, "seat-availability", cgv.ValidateSeatAvailabilityTask, delegate, seatAvailabilityBrowserCapture)
-}
-
-func (executor *CGVExecutor) captureLiveSeat(
-	ctx context.Context,
-	task *observationpb.AssignmentTask,
-	operation string,
-	validate func(*observationpb.AssignmentTask) error,
-	delegate liveSeatCapture,
-	browserCapture func(scheduleBrowser) (liveSeatCapture, bool),
-) (*seatmappb.LiveSeatObservation, error) {
 	if err := requireManagedScan(task); err != nil {
 		return nil, err
 	}
-	if err := validate(task); err != nil {
+	if err := cgv.ValidateSeatMapTask(task); err != nil {
 		return nil, err
 	}
-	if delegate != nil {
-		return delegate(ctx, task)
+	if executor.seatMap != nil {
+		return executor.seatMap.CaptureSeatMap(ctx, task)
 	}
 	if executor.open == nil {
 		return nil, fmt.Errorf("%w: probe browser factory is unavailable", cgv.ErrBrowserStartFailed)
@@ -97,27 +83,19 @@ func (executor *CGVExecutor) captureLiveSeat(
 		return nil, fmt.Errorf("%w: open Probe browser: %w", cgv.ErrBrowserStartFailed, err)
 	}
 	defer browserSession.Close()
-	capture, supported := browserCapture(browserSession)
+	capture, supported := seatMapBrowserCapture(browserSession)
 	if !supported {
-		return nil, fmt.Errorf("%w: probe browser does not support %s capture", errLocalExecution, operation)
+		return nil, fmt.Errorf("%w: probe browser does not support seat-map capture", errLocalExecution)
 	}
 	return capture(ctx, task)
 }
 
-func seatMapBrowserCapture(browser scheduleBrowser) (liveSeatCapture, bool) {
+func seatMapBrowserCapture(browser scheduleBrowser) (seatMapCapture, bool) {
 	capture, supported := browser.(seatMapBrowser)
 	if !supported {
 		return nil, false
 	}
 	return capture.CaptureSeatMap, true
-}
-
-func seatAvailabilityBrowserCapture(browser scheduleBrowser) (liveSeatCapture, bool) {
-	capture, supported := browser.(seatAvailabilityBrowser)
-	if !supported {
-		return nil, false
-	}
-	return capture.CaptureSeatAvailability, true
 }
 
 func NewCGVExecutor(factory *cgvbrowser.Factory) (*CGVExecutor, error) {
@@ -136,28 +114,125 @@ func (executor *CGVExecutor) Capture(
 	ctx context.Context,
 	task *observationpb.AssignmentTask,
 ) ([]*observationpb.Capture, error) {
-	schedule := task.GetSchedule()
-	if schedule == nil {
-		return nil, fmt.Errorf("%w: unsupported Probe task kind", errLocalExecution)
+	return executor.captureSchedules(ctx, task, nil)
+}
+
+// CaptureWeekdays keeps an active monitor scan inside CGV's currently visible
+// range while limiting the expensive date traversal to relevant weekdays.
+func (executor *CGVExecutor) CaptureWeekdays(
+	ctx context.Context,
+	task *observationpb.AssignmentTask,
+	weekdayValues []int32,
+) ([]*observationpb.Capture, error) {
+	weekdays, err := scheduleWeekdays(weekdayValues)
+	if err != nil {
+		return nil, err
 	}
+	return executor.captureSchedules(ctx, task, weekdays)
+}
+
+func (executor *CGVExecutor) OpenScheduleSession(
+	ctx context.Context,
+	task *observationpb.AssignmentTask,
+) (*ScheduleSession, error) {
 	if err := validateScheduleTask(task); err != nil {
 		return nil, err
 	}
-	location, err := time.LoadLocation(schedule.GetTimeZone())
+	if executor == nil || executor.open == nil {
+		return nil, fmt.Errorf("%w: probe browser factory is unavailable", cgv.ErrBrowserStartFailed)
+	}
+	browserSession, err := executor.open(ctx, scanBrowserTask(task))
 	if err != nil {
-		return nil, fmt.Errorf("%w: load assignment time zone: %w", errLocalExecution, err)
+		return nil, fmt.Errorf("%w: open Probe browser: %w", cgv.ErrBrowserStartFailed, err)
+	}
+	return &ScheduleSession{executor: executor, browser: browserSession}, nil
+}
+
+func (session *ScheduleSession) Capture(
+	ctx context.Context,
+	task *observationpb.AssignmentTask,
+) ([]*observationpb.Capture, error) {
+	return session.capture(ctx, task, nil)
+}
+
+func (session *ScheduleSession) CaptureWeekdays(
+	ctx context.Context,
+	task *observationpb.AssignmentTask,
+	weekdayValues []int32,
+) ([]*observationpb.Capture, error) {
+	weekdays, err := scheduleWeekdays(weekdayValues)
+	if err != nil {
+		return nil, err
+	}
+	return session.capture(ctx, task, weekdays)
+}
+
+func (session *ScheduleSession) capture(
+	ctx context.Context,
+	task *observationpb.AssignmentTask,
+	weekdays []time.Weekday,
+) ([]*observationpb.Capture, error) {
+	if session == nil || session.executor == nil {
+		return nil, errors.New("probe schedule session is closed")
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.browser == nil {
+		return nil, errors.New("probe schedule session is closed")
+	}
+	return session.executor.captureSchedulesInBrowser(ctx, task, weekdays, session.browser)
+}
+
+func (session *ScheduleSession) Close() {
+	if session == nil {
+		return
+	}
+	session.mu.Lock()
+	browserSession := session.browser
+	session.browser = nil
+	session.mu.Unlock()
+	if browserSession != nil {
+		browserSession.Close()
+	}
+}
+
+func (executor *CGVExecutor) captureSchedules(
+	ctx context.Context,
+	task *observationpb.AssignmentTask,
+	weekdays []time.Weekday,
+) ([]*observationpb.Capture, error) {
+	if err := validateScheduleTask(task); err != nil {
+		return nil, err
 	}
 	browserSession, err := executor.open(ctx, scanBrowserTask(task))
 	if err != nil {
 		return nil, fmt.Errorf("%w: open Probe browser: %w", cgv.ErrBrowserStartFailed, err)
 	}
 	defer browserSession.Close()
-	theater := scheduleTheater(schedule.GetTheater())
-	targetDates := make([]string, 0, len(schedule.GetTargetDates()))
-	for _, date := range schedule.GetTargetDates() {
-		targetDates = append(targetDates, localDateString(date))
+	return executor.captureSchedulesInBrowser(ctx, task, weekdays, browserSession)
+}
+
+func (executor *CGVExecutor) captureSchedulesInBrowser(
+	ctx context.Context,
+	task *observationpb.AssignmentTask,
+	weekdays []time.Weekday,
+	browserSession scheduleBrowser,
+) ([]*observationpb.Capture, error) {
+	if err := validateScheduleTask(task); err != nil {
+		return nil, err
 	}
-	values, err := browserSession.CaptureSchedules(ctx, theater, targetDates)
+	schedule := task.GetSchedule()
+	location, err := time.LoadLocation(schedule.GetTimeZone())
+	if err != nil {
+		return nil, fmt.Errorf("%w: load assignment time zone: %w", errLocalExecution, err)
+	}
+	theater := scheduleTheater(schedule.GetTheater())
+	var values []cgv.ScheduleCapture
+	if weekdayBrowser, supported := browserSession.(weekdayScheduleBrowser); supported && len(weekdays) > 0 {
+		values, err = weekdayBrowser.CaptureSchedulesForWeekdays(ctx, theater, weekdays)
+	} else {
+		values, err = browserSession.CaptureSchedules(ctx, theater, nil)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("capture CGV schedules: %w", err)
 	}
@@ -168,6 +243,23 @@ func (executor *CGVExecutor) Capture(
 			return nil, err
 		}
 		result = append(result, capture)
+	}
+	return result, nil
+}
+
+func scheduleWeekdays(values []int32) ([]time.Weekday, error) {
+	seen := make(map[time.Weekday]struct{}, len(values))
+	result := make([]time.Weekday, 0, len(values))
+	for _, value := range values {
+		if value < int32(time.Sunday) || value > int32(time.Saturday) {
+			return nil, fmt.Errorf("%w: invalid schedule weekday %d", errLocalExecution, value)
+		}
+		weekday := time.Weekday(value)
+		if _, exists := seen[weekday]; exists {
+			continue
+		}
+		seen[weekday] = struct{}{}
+		result = append(result, weekday)
 	}
 	return result, nil
 }
@@ -195,7 +287,7 @@ func (executor *CGVExecutor) CaptureCatalog(
 	if !supported {
 		return nil, fmt.Errorf("%w: probe browser does not support catalog capture", errLocalExecution)
 	}
-	value, err := catalog.CaptureCatalog(ctx)
+	value, err := catalog.CaptureCatalog(ctx, catalogTask.GetCachedPosterMovieIds())
 	if err != nil {
 		return nil, fmt.Errorf("capture CGV catalog: %w", err)
 	}
@@ -222,9 +314,16 @@ func (executor *CGVExecutor) CaptureCatalog(
 		item.SetProviderId(cgv.ProviderCGV)
 		item.SetIdentity(cgv.NewMovieIdentity(movie.SourceKey))
 		item.SetTitle(movie.Title)
-		item.SetPosterUrl(movie.PosterURL)
 		snapshot.SetMovies(append(snapshot.GetMovies(), item))
 	}
+	posters := make([]*catalogpb.MoviePoster, 0, len(value.Posters))
+	for _, poster := range value.Posters {
+		movieID := cgv.CatalogID(cgv.ProviderCGV, "movie", poster.MovieSourceKey)
+		posters = append(posters, catalogpb.MoviePoster_builder{
+			MovieId: &movieID, MediaType: &poster.MediaType, Data: poster.Data, ContentHash: &poster.ContentHash,
+		}.Build())
+	}
+	snapshot.SetPosters(posters)
 	return snapshot, nil
 }
 
@@ -245,8 +344,8 @@ func validateScheduleTask(task *observationpb.AssignmentTask) error {
 	if theater.GetId() != cgv.CatalogID(cgv.ProviderCGV, "theater", siteNo) {
 		return fmt.Errorf("%w: CGV schedule task theater ID is not canonical", cgv.ErrIdentityMismatch)
 	}
-	if strings.TrimSpace(schedule.GetTimeZone()) == "" || len(schedule.GetTargetDates()) == 0 {
-		return fmt.Errorf("%w: CGV schedule task capture window is incomplete", cgv.ErrIdentityMismatch)
+	if strings.TrimSpace(schedule.GetTimeZone()) == "" {
+		return fmt.Errorf("%w: CGV schedule task time zone is incomplete", cgv.ErrIdentityMismatch)
 	}
 	return nil
 }
@@ -285,9 +384,6 @@ func scanBrowserTask(task *observationpb.AssignmentTask) cgvbrowser.Task {
 	case task != nil && task.GetSeatMap() != nil:
 		result.Locale = task.GetSeatMap().GetLocale()
 		result.TimeZone = task.GetSeatMap().GetTimeZone()
-	case task != nil && task.GetSeatAvailability() != nil:
-		result.Locale = task.GetSeatAvailability().GetLocale()
-		result.TimeZone = task.GetSeatAvailability().GetTimeZone()
 	}
 	return result
 }
@@ -333,7 +429,6 @@ func (executor *CGVExecutor) convertCapture(
 		movie.SetProviderId(showtime.ProviderID)
 		movie.SetIdentity(cgv.NewMovieIdentity(showtime.MovieSourceKey))
 		movie.SetTitle(showtime.MovieTitle)
-		movie.SetPosterUrl(showtime.PosterURL)
 		auditorium := &catalogpb.Auditorium{}
 		auditorium.SetId(showtime.AuditoriumID)
 		auditorium.SetTheaterId(showtime.TheaterID)
@@ -454,13 +549,6 @@ func int32Value(value int) (int32, error) {
 		return 0, fmt.Errorf("integer %d is outside int32 range", value)
 	}
 	return int32(value), nil
-}
-
-func localDateString(value *commonpb.LocalDate) string {
-	if value == nil {
-		return ""
-	}
-	return fmt.Sprintf("%04d-%02d-%02d", value.GetYear(), value.GetMonth(), value.GetDay())
 }
 
 func captureErrorCode(value string) string {

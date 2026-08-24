@@ -19,12 +19,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const (
-	// SafeDiagnosticKey carries only the Go error class returned by
-	// SafeDiagnostic. It intentionally avoids sensitive-key fragments.
-	SafeDiagnosticKey = "provider_error_summary"
-)
-
 type Setup struct {
 	Logger   *slog.Logger
 	Shutdown func(context.Context) error
@@ -66,15 +60,6 @@ func ErrorType(err error) string {
 		return "reported_error"
 	}
 	return normalizeKey(valueType.Name())
-}
-
-// SafeDiagnostic deliberately never reads err.Error(). Provider and browser
-// errors can contain arbitrary URLs, headers, userinfo, credentials, or
-// tokens, so a deny-list cannot establish that structured logs are safe. The
-// concrete Go error class is bounded to an identifier-derived value and keeps
-// diagnostics useful without retaining attacker- or provider-controlled text.
-func SafeDiagnostic(err error) string {
-	return ErrorType(err)
 }
 
 type fanoutHandler struct{ handlers []slog.Handler }
@@ -150,29 +135,17 @@ func (handler *canonicalHandler) WithGroup(name string) slog.Handler {
 func normalizeAttribute(attribute slog.Attr) (slog.Attr, bool) {
 	attribute.Value = attribute.Value.Resolve()
 	key := normalizeKey(attribute.Key)
-	if key == "" || forbiddenKey(key) {
+	if key == "" {
 		return slog.Attr{}, false
 	}
 	if key == "error" || key == "err" {
 		if err, ok := attribute.Value.Any().(error); ok {
-			return slog.String("error_type", ErrorType(err)), true
+			return slog.String("error", err.Error()), true
 		}
-		return slog.String("error_type", "reported_error"), true
-	}
-	if attribute.Value.Kind() == slog.KindAny {
-		return slog.Attr{}, false
+		key = "error"
 	}
 	attribute.Key = key
 	return attribute, true
-}
-
-func forbiddenKey(key string) bool {
-	for _, fragment := range []string{"authorization", "cookie", "credential", "password", "secret", "token", "user_id", "url"} {
-		if key == fragment || strings.HasSuffix(key, "_"+fragment) || strings.HasPrefix(key, fragment+"_") {
-			return true
-		}
-	}
-	return false
 }
 
 func normalizeKey(key string) string {

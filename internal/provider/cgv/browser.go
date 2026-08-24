@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -13,12 +14,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cineko-org/probe/v2/internal/telemetry"
 	"github.com/mxschmitt/playwright-go"
 )
 
 const (
 	homeURL                     = "https://cgv.co.kr/"
 	loginURL                    = "https://cgv.co.kr/mem/login?returnUrl=%2F"
+	bookingMovieURL             = "https://cgv.co.kr/cnm/movieBook/movie"
 	bookingCinemaURL            = "https://cgv.co.kr/cnm/movieBook/cinema"
 	selectedButtonSemanticTitle = "선택됨"
 )
@@ -55,6 +58,7 @@ type BrowserConfig struct {
 	TimeZone               string
 	Proxy                  *BrowserProxy
 	Capacity               int
+	Logger                 *slog.Logger
 	ProviderFailureHandler ProviderFailureHandler
 }
 
@@ -112,10 +116,15 @@ type Adapter struct {
 	blockResources         bool
 	scheduleResponseMu     sync.Mutex
 	providerResponses      []capturedProviderResponse
+	catalogPosterMu        sync.Mutex
+	catalogPosterMode      bool
+	cachedPosterMovies     map[string]struct{}
+	catalogPosters         map[string]CatalogPoster
 	providerFailureHandler ProviderFailureHandler
 	userAgent              browserUserAgent
 	userAgentMetadata      userAgentBootstrapIdentity
 	webGLIdentity          webGLIdentity
+	logger                 *slog.Logger
 }
 
 func (adapter *Adapter) handleProviderFailure(err error) error {
@@ -343,6 +352,7 @@ func newAdapter(
 		userAgentMetadata: identity.metadata, webGLIdentity: identity.webGL,
 		blockResources:         config.BlockResources,
 		providerFailureHandler: config.ProviderFailureHandler,
+		logger:                 config.Logger,
 	}
 	if persistedIdentity == nil {
 		if err := saveSessionIdentity(config, persistentBrowserIdentity{
@@ -464,6 +474,9 @@ func (adapter *Adapter) installBrowserHooks(scripts []string) error {
 		return fmt.Errorf("install browser resource routing: %w", err)
 	}
 	adapter.page.OnResponse(adapter.captureProviderResponse)
+	adapter.page.OnResponse(adapter.captureCatalogPosterResponse)
+	adapter.browserContext.OnRequestFinished(adapter.logProviderRequest)
+	adapter.browserContext.OnRequestFailed(adapter.logProviderRequestFailed)
 	adapter.browserContext.OnPage(func(page playwright.Page) {
 		if page != adapter.page {
 			_ = page.Close()
@@ -640,7 +653,9 @@ func shouldBlockResource(requestURL, resourceType string) bool {
 
 func (adapter *Adapter) routeRequest(route playwright.Route) {
 	request := route.Request()
-	if adapter.blockResources && shouldBlockResource(request.URL(), request.ResourceType()) {
+	posterAllowed, posterRequest := adapter.catalogPosterRequestAllowed(request.URL(), request.ResourceType())
+	if adapter.blockResources && ((!posterRequest && shouldBlockResource(request.URL(), request.ResourceType())) ||
+		(posterRequest && !posterAllowed)) {
 		adapter.blockedRequests.Add(1)
 		_ = route.Abort("blockedbyclient")
 		return
@@ -651,7 +666,18 @@ func (adapter *Adapter) routeRequest(route playwright.Route) {
 		_ = route.Continue()
 		return
 	}
+	if headers == nil {
+		headers = make(map[string]string)
+	}
 	applyUserAgentHeaders(headers, adapter.userAgent, adapter.userAgentMetadata)
+	requestID := strings.TrimSpace(headers[strings.ToLower(telemetry.RequestIDHeader)])
+	if requestID == "" {
+		requestID = telemetry.RequestID(adapter.ctx)
+	}
+	if requestID == "" {
+		requestID = telemetry.NewRequestID()
+	}
+	headers[telemetry.RequestIDHeader] = requestID
 	_ = route.Continue(playwright.RouteContinueOptions{Headers: headers})
 }
 

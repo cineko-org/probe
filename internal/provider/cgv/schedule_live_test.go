@@ -13,9 +13,7 @@ func TestLiveScheduleCapture(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
-	config := DefaultBrowserConfig()
-	config.ProfileDir = t.TempDir()
-	config.ArtifactsDir = t.TempDir()
+	config := liveSoxyBrowserConfig(t, ctx)
 	adapter, err := NewAdapter(ctx, config)
 	if err != nil {
 		t.Fatal(err)

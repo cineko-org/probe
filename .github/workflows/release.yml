@@ -12,24 +12,9 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-24.04
-    outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      release_tag: ${{ steps.release.outputs.tag_name }}
-      source_sha: ${{ steps.release.outputs.sha }}
     steps:
       - id: release
         uses: googleapis/release-please-action@v5
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-
-  publish-image:
-    needs: release
-    if: needs.release.outputs.release_created == 'true'
-    permissions:
-      contents: read
-    uses: ./.github/workflows/publish-image.yml
-    with:
-      release_tag: ${{ needs.release.outputs.release_tag }}
-      source_sha: ${{ needs.release.outputs.source_sha }}
-    secrets: inherit

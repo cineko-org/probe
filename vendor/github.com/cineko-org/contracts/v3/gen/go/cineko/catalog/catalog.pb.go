@@ -1455,7 +1455,8 @@ type Movie_builder struct {
 	ProviderId *string
 	Identity   *MovieIdentity
 	Title      *string
-	PosterUrl  *string
+	// Client-local URL only. Provider/CDN URLs must never cross this contract.
+	PosterUrl *string
 }
 
 func (b0 Movie_builder) Build() *Movie {
@@ -1482,6 +1483,185 @@ func (b0 Movie_builder) Build() *Movie {
 	return m0
 }
 
+// MoviePoster is an image response naturally loaded by the provider page in
+// the Probe browser. Probe must not issue a separate fetch for this asset.
+type MoviePoster struct {
+	state                  protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_MovieId     *string                `protobuf:"bytes,1,opt,name=movie_id,json=movieId"`
+	xxx_hidden_MediaType   *string                `protobuf:"bytes,2,opt,name=media_type,json=mediaType"`
+	xxx_hidden_Data        []byte                 `protobuf:"bytes,3,opt,name=data"`
+	xxx_hidden_ContentHash *string                `protobuf:"bytes,4,opt,name=content_hash,json=contentHash"`
+	XXX_raceDetectHookData protoimpl.RaceDetectHookData
+	XXX_presence           [1]uint32
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *MoviePoster) Reset() {
+	*x = MoviePoster{}
+	mi := &file_cineko_catalog_catalog_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MoviePoster) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MoviePoster) ProtoMessage() {}
+
+func (x *MoviePoster) ProtoReflect() protoreflect.Message {
+	mi := &file_cineko_catalog_catalog_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *MoviePoster) GetMovieId() string {
+	if x != nil {
+		if x.xxx_hidden_MovieId != nil {
+			return *x.xxx_hidden_MovieId
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *MoviePoster) GetMediaType() string {
+	if x != nil {
+		if x.xxx_hidden_MediaType != nil {
+			return *x.xxx_hidden_MediaType
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *MoviePoster) GetData() []byte {
+	if x != nil {
+		return x.xxx_hidden_Data
+	}
+	return nil
+}
+
+func (x *MoviePoster) GetContentHash() string {
+	if x != nil {
+		if x.xxx_hidden_ContentHash != nil {
+			return *x.xxx_hidden_ContentHash
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *MoviePoster) SetMovieId(v string) {
+	x.xxx_hidden_MovieId = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 4)
+}
+
+func (x *MoviePoster) SetMediaType(v string) {
+	x.xxx_hidden_MediaType = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 4)
+}
+
+func (x *MoviePoster) SetData(v []byte) {
+	if v == nil {
+		v = []byte{}
+	}
+	x.xxx_hidden_Data = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 4)
+}
+
+func (x *MoviePoster) SetContentHash(v string) {
+	x.xxx_hidden_ContentHash = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 4)
+}
+
+func (x *MoviePoster) HasMovieId() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
+}
+
+func (x *MoviePoster) HasMediaType() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 1)
+}
+
+func (x *MoviePoster) HasData() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 2)
+}
+
+func (x *MoviePoster) HasContentHash() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 3)
+}
+
+func (x *MoviePoster) ClearMovieId() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
+	x.xxx_hidden_MovieId = nil
+}
+
+func (x *MoviePoster) ClearMediaType() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 1)
+	x.xxx_hidden_MediaType = nil
+}
+
+func (x *MoviePoster) ClearData() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 2)
+	x.xxx_hidden_Data = nil
+}
+
+func (x *MoviePoster) ClearContentHash() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 3)
+	x.xxx_hidden_ContentHash = nil
+}
+
+type MoviePoster_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	MovieId     *string
+	MediaType   *string
+	Data        []byte
+	ContentHash *string
+}
+
+func (b0 MoviePoster_builder) Build() *MoviePoster {
+	m0 := &MoviePoster{}
+	b, x := &b0, m0
+	_, _ = b, x
+	if b.MovieId != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 4)
+		x.xxx_hidden_MovieId = b.MovieId
+	}
+	if b.MediaType != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 4)
+		x.xxx_hidden_MediaType = b.MediaType
+	}
+	if b.Data != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 4)
+		x.xxx_hidden_Data = b.Data
+	}
+	if b.ContentHash != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 4)
+		x.xxx_hidden_ContentHash = b.ContentHash
+	}
+	return m0
+}
+
 type Auditorium struct {
 	state                        protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_Id                *string                `protobuf:"bytes,1,opt,name=id"`
@@ -1499,7 +1679,7 @@ type Auditorium struct {
 
 func (x *Auditorium) Reset() {
 	*x = Auditorium{}
-	mi := &file_cineko_catalog_catalog_proto_msgTypes[11]
+	mi := &file_cineko_catalog_catalog_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1511,7 +1691,7 @@ func (x *Auditorium) String() string {
 func (*Auditorium) ProtoMessage() {}
 
 func (x *Auditorium) ProtoReflect() protoreflect.Message {
-	mi := &file_cineko_catalog_catalog_proto_msgTypes[11]
+	mi := &file_cineko_catalog_catalog_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1749,7 +1929,7 @@ type Showtime struct {
 
 func (x *Showtime) Reset() {
 	*x = Showtime{}
-	mi := &file_cineko_catalog_catalog_proto_msgTypes[12]
+	mi := &file_cineko_catalog_catalog_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1761,7 +1941,7 @@ func (x *Showtime) String() string {
 func (*Showtime) ProtoMessage() {}
 
 func (x *Showtime) ProtoReflect() protoreflect.Message {
-	mi := &file_cineko_catalog_catalog_proto_msgTypes[12]
+	mi := &file_cineko_catalog_catalog_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2095,13 +2275,14 @@ type CatalogSnapshot struct {
 	xxx_hidden_Auditoriums *[]*Auditorium         `protobuf:"bytes,4,rep,name=auditoriums"`
 	xxx_hidden_Showtimes   *[]*Showtime           `protobuf:"bytes,5,rep,name=showtimes"`
 	xxx_hidden_ObservedAt  *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=observed_at,json=observedAt"`
+	xxx_hidden_Posters     *[]*MoviePoster        `protobuf:"bytes,7,rep,name=posters"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
 
 func (x *CatalogSnapshot) Reset() {
 	*x = CatalogSnapshot{}
-	mi := &file_cineko_catalog_catalog_proto_msgTypes[13]
+	mi := &file_cineko_catalog_catalog_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2113,7 +2294,7 @@ func (x *CatalogSnapshot) String() string {
 func (*CatalogSnapshot) ProtoMessage() {}
 
 func (x *CatalogSnapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_cineko_catalog_catalog_proto_msgTypes[13]
+	mi := &file_cineko_catalog_catalog_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2174,6 +2355,15 @@ func (x *CatalogSnapshot) GetObservedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *CatalogSnapshot) GetPosters() []*MoviePoster {
+	if x != nil {
+		if x.xxx_hidden_Posters != nil {
+			return *x.xxx_hidden_Posters
+		}
+	}
+	return nil
+}
+
 func (x *CatalogSnapshot) SetProvider(v *Provider) {
 	x.xxx_hidden_Provider = v
 }
@@ -2196,6 +2386,10 @@ func (x *CatalogSnapshot) SetShowtimes(v []*Showtime) {
 
 func (x *CatalogSnapshot) SetObservedAt(v *timestamppb.Timestamp) {
 	x.xxx_hidden_ObservedAt = v
+}
+
+func (x *CatalogSnapshot) SetPosters(v []*MoviePoster) {
+	x.xxx_hidden_Posters = &v
 }
 
 func (x *CatalogSnapshot) HasProvider() bool {
@@ -2229,6 +2423,7 @@ type CatalogSnapshot_builder struct {
 	Auditoriums []*Auditorium
 	Showtimes   []*Showtime
 	ObservedAt  *timestamppb.Timestamp
+	Posters     []*MoviePoster
 }
 
 func (b0 CatalogSnapshot_builder) Build() *CatalogSnapshot {
@@ -2241,6 +2436,7 @@ func (b0 CatalogSnapshot_builder) Build() *CatalogSnapshot {
 	x.xxx_hidden_Auditoriums = &b.Auditoriums
 	x.xxx_hidden_Showtimes = &b.Showtimes
 	x.xxx_hidden_ObservedAt = b.ObservedAt
+	x.xxx_hidden_Posters = &b.Posters
 	return m0
 }
 
@@ -2260,7 +2456,7 @@ type CatalogIndex struct {
 
 func (x *CatalogIndex) Reset() {
 	*x = CatalogIndex{}
-	mi := &file_cineko_catalog_catalog_proto_msgTypes[14]
+	mi := &file_cineko_catalog_catalog_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2272,7 +2468,7 @@ func (x *CatalogIndex) String() string {
 func (*CatalogIndex) ProtoMessage() {}
 
 func (x *CatalogIndex) ProtoReflect() protoreflect.Message {
-	mi := &file_cineko_catalog_catalog_proto_msgTypes[14]
+	mi := &file_cineko_catalog_catalog_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2445,7 +2641,14 @@ const file_cineko_catalog_catalog_proto_rawDesc = "" +
 	"\bidentity\x18\x03 \x01(\v2\x1d.cineko.catalog.MovieIdentityB\x06\xbaH\x03\xc8\x01\x01R\bidentity\x12\x14\n" +
 	"\x05title\x18\x04 \x01(\tR\x05title\x12\x1d\n" +
 	"\n" +
-	"poster_url\x18\x05 \x01(\tR\tposterUrl\"\x86\x02\n" +
+	"poster_url\x18\x05 \x01(\tR\tposterUrl\"\xd8\x01\n" +
+	"\vMoviePoster\x12%\n" +
+	"\bmovie_id\x18\x01 \x01(\tB\n" +
+	"\xbaH\a\xc8\x01\x01r\x02\x10\x01R\amovieId\x12@\n" +
+	"\n" +
+	"media_type\x18\x02 \x01(\tB!\xbaH\x1e\xc8\x01\x01r\x192\x17^image/(jpeg|png|webp)$R\tmediaType\x12#\n" +
+	"\x04data\x18\x03 \x01(\fB\x0f\xbaH\f\xc8\x01\x01z\a\x10\x01\x18\x80\x80\x80\x10R\x04data\x12;\n" +
+	"\fcontent_hash\x18\x04 \x01(\tB\x18\xbaH\x15\xc8\x01\x01r\x102\x0e^[0-9a-f]{64}$R\vcontentHash\"\x86\x02\n" +
 	"\n" +
 	"Auditorium\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
@@ -2472,7 +2675,7 @@ const file_cineko_catalog_catalog_proto_rawDesc = "" +
 	"\x0favailable_seats\x18\t \x01(\x05R\x0eavailableSeats\x12\x1a\n" +
 	"\bcapacity\x18\n" +
 	" \x01(\x05R\bcapacity\x12\x19\n" +
-	"\bsold_out\x18\v \x01(\bR\asoldOut\"\xde\x02\n" +
+	"\bsold_out\x18\v \x01(\bR\asoldOut\"\xa0\x03\n" +
 	"\x0fCatalogSnapshot\x124\n" +
 	"\bprovider\x18\x01 \x01(\v2\x18.cineko.catalog.ProviderR\bprovider\x123\n" +
 	"\btheaters\x18\x02 \x03(\v2\x17.cineko.catalog.TheaterR\btheaters\x12-\n" +
@@ -2480,7 +2683,8 @@ const file_cineko_catalog_catalog_proto_rawDesc = "" +
 	"\vauditoriums\x18\x04 \x03(\v2\x1a.cineko.catalog.AuditoriumR\vauditoriums\x126\n" +
 	"\tshowtimes\x18\x05 \x03(\v2\x18.cineko.catalog.ShowtimeR\tshowtimes\x12;\n" +
 	"\vobserved_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"observedAt\"\xc0\x02\n" +
+	"observedAt\x12@\n" +
+	"\aposters\x18\a \x03(\v2\x1b.cineko.catalog.MoviePosterB\t\xbaH\x06\x92\x01\x03\x10\x80\x01R\aposters\"\xc0\x02\n" +
 	"\fCatalogIndex\x12\x1e\n" +
 	"\n" +
 	"generation\x18\x01 \x01(\x03R\n" +
@@ -2491,7 +2695,7 @@ const file_cineko_catalog_catalog_proto_rawDesc = "" +
 	"\vauditoriums\x18\x05 \x03(\v2\x1a.cineko.catalog.AuditoriumR\vauditoriums\x126\n" +
 	"\tshowtimes\x18\x06 \x03(\v2\x18.cineko.catalog.ShowtimeR\tshowtimesBBZ@github.com/cineko-org/contracts/v3/gen/go/cineko/catalog;catalogb\beditionsp\xe9\a"
 
-var file_cineko_catalog_catalog_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_cineko_catalog_catalog_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_cineko_catalog_catalog_proto_goTypes = []any{
 	(*Provider)(nil),              // 0: cineko.catalog.Provider
 	(*CgvTheaterIdentity)(nil),    // 1: cineko.catalog.CgvTheaterIdentity
@@ -2504,15 +2708,16 @@ var file_cineko_catalog_catalog_proto_goTypes = []any{
 	(*ShowtimeIdentity)(nil),      // 8: cineko.catalog.ShowtimeIdentity
 	(*Theater)(nil),               // 9: cineko.catalog.Theater
 	(*Movie)(nil),                 // 10: cineko.catalog.Movie
-	(*Auditorium)(nil),            // 11: cineko.catalog.Auditorium
-	(*Showtime)(nil),              // 12: cineko.catalog.Showtime
-	(*CatalogSnapshot)(nil),       // 13: cineko.catalog.CatalogSnapshot
-	(*CatalogIndex)(nil),          // 14: cineko.catalog.CatalogIndex
-	(*common.LocalDate)(nil),      // 15: cineko.common.LocalDate
-	(*timestamppb.Timestamp)(nil), // 16: google.protobuf.Timestamp
+	(*MoviePoster)(nil),           // 11: cineko.catalog.MoviePoster
+	(*Auditorium)(nil),            // 12: cineko.catalog.Auditorium
+	(*Showtime)(nil),              // 13: cineko.catalog.Showtime
+	(*CatalogSnapshot)(nil),       // 14: cineko.catalog.CatalogSnapshot
+	(*CatalogIndex)(nil),          // 15: cineko.catalog.CatalogIndex
+	(*common.LocalDate)(nil),      // 16: cineko.common.LocalDate
+	(*timestamppb.Timestamp)(nil), // 17: google.protobuf.Timestamp
 }
 var file_cineko_catalog_catalog_proto_depIdxs = []int32{
-	15, // 0: cineko.catalog.CgvShowtimeIdentity.schedule_date:type_name -> cineko.common.LocalDate
+	16, // 0: cineko.catalog.CgvShowtimeIdentity.schedule_date:type_name -> cineko.common.LocalDate
 	1,  // 1: cineko.catalog.TheaterIdentity.cgv:type_name -> cineko.catalog.CgvTheaterIdentity
 	2,  // 2: cineko.catalog.MovieIdentity.cgv:type_name -> cineko.catalog.CgvMovieIdentity
 	3,  // 3: cineko.catalog.AuditoriumIdentity.cgv:type_name -> cineko.catalog.CgvAuditoriumIdentity
@@ -2522,25 +2727,26 @@ var file_cineko_catalog_catalog_proto_depIdxs = []int32{
 	7,  // 7: cineko.catalog.Auditorium.identity:type_name -> cineko.catalog.AuditoriumIdentity
 	8,  // 8: cineko.catalog.Showtime.identity:type_name -> cineko.catalog.ShowtimeIdentity
 	10, // 9: cineko.catalog.Showtime.movie:type_name -> cineko.catalog.Movie
-	11, // 10: cineko.catalog.Showtime.auditorium:type_name -> cineko.catalog.Auditorium
-	16, // 11: cineko.catalog.Showtime.starts_at:type_name -> google.protobuf.Timestamp
-	16, // 12: cineko.catalog.Showtime.ends_at:type_name -> google.protobuf.Timestamp
+	12, // 10: cineko.catalog.Showtime.auditorium:type_name -> cineko.catalog.Auditorium
+	17, // 11: cineko.catalog.Showtime.starts_at:type_name -> google.protobuf.Timestamp
+	17, // 12: cineko.catalog.Showtime.ends_at:type_name -> google.protobuf.Timestamp
 	0,  // 13: cineko.catalog.CatalogSnapshot.provider:type_name -> cineko.catalog.Provider
 	9,  // 14: cineko.catalog.CatalogSnapshot.theaters:type_name -> cineko.catalog.Theater
 	10, // 15: cineko.catalog.CatalogSnapshot.movies:type_name -> cineko.catalog.Movie
-	11, // 16: cineko.catalog.CatalogSnapshot.auditoriums:type_name -> cineko.catalog.Auditorium
-	12, // 17: cineko.catalog.CatalogSnapshot.showtimes:type_name -> cineko.catalog.Showtime
-	16, // 18: cineko.catalog.CatalogSnapshot.observed_at:type_name -> google.protobuf.Timestamp
-	0,  // 19: cineko.catalog.CatalogIndex.providers:type_name -> cineko.catalog.Provider
-	9,  // 20: cineko.catalog.CatalogIndex.theaters:type_name -> cineko.catalog.Theater
-	10, // 21: cineko.catalog.CatalogIndex.movies:type_name -> cineko.catalog.Movie
-	11, // 22: cineko.catalog.CatalogIndex.auditoriums:type_name -> cineko.catalog.Auditorium
-	12, // 23: cineko.catalog.CatalogIndex.showtimes:type_name -> cineko.catalog.Showtime
-	24, // [24:24] is the sub-list for method output_type
-	24, // [24:24] is the sub-list for method input_type
-	24, // [24:24] is the sub-list for extension type_name
-	24, // [24:24] is the sub-list for extension extendee
-	0,  // [0:24] is the sub-list for field type_name
+	12, // 16: cineko.catalog.CatalogSnapshot.auditoriums:type_name -> cineko.catalog.Auditorium
+	13, // 17: cineko.catalog.CatalogSnapshot.showtimes:type_name -> cineko.catalog.Showtime
+	17, // 18: cineko.catalog.CatalogSnapshot.observed_at:type_name -> google.protobuf.Timestamp
+	11, // 19: cineko.catalog.CatalogSnapshot.posters:type_name -> cineko.catalog.MoviePoster
+	0,  // 20: cineko.catalog.CatalogIndex.providers:type_name -> cineko.catalog.Provider
+	9,  // 21: cineko.catalog.CatalogIndex.theaters:type_name -> cineko.catalog.Theater
+	10, // 22: cineko.catalog.CatalogIndex.movies:type_name -> cineko.catalog.Movie
+	12, // 23: cineko.catalog.CatalogIndex.auditoriums:type_name -> cineko.catalog.Auditorium
+	13, // 24: cineko.catalog.CatalogIndex.showtimes:type_name -> cineko.catalog.Showtime
+	25, // [25:25] is the sub-list for method output_type
+	25, // [25:25] is the sub-list for method input_type
+	25, // [25:25] is the sub-list for extension type_name
+	25, // [25:25] is the sub-list for extension extendee
+	0,  // [0:25] is the sub-list for field type_name
 }
 
 func init() { file_cineko_catalog_catalog_proto_init() }
@@ -2566,7 +2772,7 @@ func file_cineko_catalog_catalog_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_cineko_catalog_catalog_proto_rawDesc), len(file_cineko_catalog_catalog_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   15,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

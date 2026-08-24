@@ -53,39 +53,91 @@ type ScheduleCapture struct {
 }
 
 // CaptureSchedules returns a complete, unfiltered snapshot for every requested
-// date. Date-level failures stay attached to that date so an unavailable page
-// can never be mistaken for evidence that no showtimes existed.
+// date. When none are requested, it scans every date currently exposed by CGV.
+// Date-level failures stay attached to that date so an unavailable page can
+// never be mistaken for evidence that no showtimes existed.
 func (adapter *Adapter) CaptureSchedules(
 	ctx context.Context,
 	theater ScheduleTheater,
-	targetDates []string,
+	requestedDates []string,
 ) ([]ScheduleCapture, error) {
 	adapter.mu.Lock()
 	defer adapter.mu.Unlock()
+	return adapter.captureSchedules(ctx, theater, requestedDates, nil)
+}
+
+// CaptureSchedulesForWeekdays scans only provider dates that can contain a
+// monitor's selected weekdays. The caller includes the preceding provider day
+// when extended-hour screenings (for example 25:30) can cross midnight.
+func (adapter *Adapter) CaptureSchedulesForWeekdays(
+	ctx context.Context,
+	theater ScheduleTheater,
+	weekdays []time.Weekday,
+) ([]ScheduleCapture, error) {
+	adapter.mu.Lock()
+	defer adapter.mu.Unlock()
+	return adapter.captureSchedules(ctx, theater, nil, weekdays)
+}
+
+func (adapter *Adapter) captureSchedules(
+	ctx context.Context,
+	theater ScheduleTheater,
+	requestedDates []string,
+	weekdays []time.Weekday,
+) ([]ScheduleCapture, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if err := adapter.selectCinemaTheater(theater.Region, theater.Name); err != nil {
 		return nil, err
 	}
-	result := make([]ScheduleCapture, 0, len(targetDates))
-	for _, targetDate := range targetDates {
+	scanDates := requestedDates
+	if len(scanDates) == 0 {
+		var err error
+		scanDates, err = adapter.availableScheduleDates()
+		if err != nil {
+			return nil, err
+		}
+		if len(weekdays) > 0 {
+			scanDates, err = filterScheduleDatesByWeekdays(scanDates, weekdays)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	if adapter.logger != nil {
+		adapter.logger.InfoContext(ctx, "CGV schedule capture started",
+			"event", "cgv.schedule.capture.started",
+			"scenario", "schedule_collection",
+			"operation", "capture_theater_schedule",
+			"outcome", "started",
+			"theater_id", theater.ID,
+			"theater_source_key", theater.SourceKey,
+			"theater_name", theater.Name,
+			"provider_dates", scanDates,
+		)
+	}
+	result := make([]ScheduleCapture, 0, len(scanDates))
+	for _, targetDate := range scanDates {
 		capture := ScheduleCapture{TargetDate: targetDate}
 		canonicalDate, err := canonicalProviderDate(targetDate)
 		if err != nil {
 			capture.Error = err.Error()
+			adapter.logScheduleCaptureFailure(ctx, theater, targetDate, "canonicalize_date", err)
 			result = append(result, capture)
 			continue
 		}
 		capture.TargetDate = canonicalDate
 		if err := adapter.selectDate(canonicalDate); err != nil {
 			capture.Error = err.Error()
+			adapter.logScheduleCaptureFailure(ctx, theater, canonicalDate, "select_date", err)
 			result = append(result, capture)
 			continue
 		}
 		entries, err := adapter.extractSchedules(canonicalDate, theater)
 		if err != nil {
 			capture.Error = err.Error()
+			adapter.logScheduleCaptureFailure(ctx, theater, canonicalDate, "extract_schedules", err)
 			result = append(result, capture)
 			continue
 		}
@@ -94,41 +146,141 @@ func (adapter *Adapter) CaptureSchedules(
 		for _, entry := range entries {
 			capture.Showtimes = append(capture.Showtimes, entry.Showtime)
 		}
+		if adapter.logger != nil {
+			adapter.logger.InfoContext(ctx, "CGV schedule capture completed",
+				"event", "cgv.schedule.capture.completed",
+				"scenario", "schedule_collection",
+				"operation", "capture_theater_schedule",
+				"outcome", "succeeded",
+				"theater_id", theater.ID,
+				"theater_source_key", theater.SourceKey,
+				"theater_name", theater.Name,
+				"target_date", canonicalDate,
+				"showtime_count", len(capture.Showtimes),
+			)
+		}
 		result = append(result, capture)
 	}
 	return result, nil
 }
 
+func filterScheduleDatesByWeekdays(dates []string, weekdays []time.Weekday) ([]string, error) {
+	selected := make(map[time.Weekday]struct{}, len(weekdays))
+	for _, weekday := range weekdays {
+		if weekday < time.Sunday || weekday > time.Saturday {
+			return nil, fmt.Errorf("%w: invalid schedule weekday %d", ErrIdentityMismatch, weekday)
+		}
+		selected[weekday] = struct{}{}
+	}
+	if len(selected) == 0 {
+		return append([]string(nil), dates...), nil
+	}
+	result := make([]string, 0, len(dates))
+	for _, value := range dates {
+		canonical, err := canonicalProviderDate(value)
+		if err != nil {
+			return nil, err
+		}
+		date, err := time.Parse(time.DateOnly, canonical)
+		if err != nil {
+			return nil, fmt.Errorf("parse provider schedule date %q: %w", value, err)
+		}
+		if _, included := selected[date.Weekday()]; included {
+			result = append(result, canonical)
+		}
+	}
+	return result, nil
+}
+
+// availableScheduleDates resolves every date currently exposed by CGV. A
+// monitor has no expiry; each scan asks the provider for its current window so
+// newly opened weeks are picked up without persisting an arbitrary horizon.
+func (adapter *Adapter) availableScheduleDates() ([]string, error) {
+	var labels []string
+	if err := adapter.evaluate(`(() => window.__cinekoQueryAll('button')
+		.filter(button => !button.disabled)
+		.map(button => (button.innerText || button.textContent || '').replace(/\s+/g, ' ').trim())
+		.filter(Boolean))()`, &labels); err != nil {
+		return nil, fmt.Errorf("read CGV schedule dates: %w", err)
+	}
+	return availableScheduleDatesFromLabels(labels, time.Now().In(time.FixedZone("KST", 9*60*60)))
+}
+
+func availableScheduleDatesFromLabels(labels []string, now time.Time) ([]string, error) {
+	remaining := make(map[string]struct{}, len(labels))
+	for _, label := range labels {
+		remaining[normalize(label)] = struct{}{}
+	}
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	dates := make([]string, 0, 16)
+	// Date buttons omit the year. Matching the nearest occurrence within a
+	// complete Gregorian cycle maps every visible day/weekday label without
+	// imposing a user-visible monitoring deadline.
+	for offset := 0; offset < 400 && len(remaining) > 0; offset++ {
+		candidate := today.AddDate(0, 0, offset)
+		variants := dateSelectionLabels(candidate, today)
+		matched := false
+		for _, label := range variants {
+			if _, exists := remaining[normalize(label)]; exists {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+		dates = append(dates, candidate.Format(time.DateOnly))
+		for _, label := range variants {
+			delete(remaining, normalize(label))
+		}
+	}
+	if len(dates) == 0 {
+		return nil, fmt.Errorf("%w: no selectable schedule dates", ErrUIContractChanged)
+	}
+	return dates, nil
+}
+
+func (adapter *Adapter) logScheduleCaptureFailure(
+	ctx context.Context,
+	theater ScheduleTheater,
+	targetDate string,
+	stage string,
+	err error,
+) {
+	if adapter.logger == nil {
+		return
+	}
+	adapter.logger.ErrorContext(ctx, "CGV schedule capture failed",
+		"event", "cgv.schedule.capture.failed",
+		"scenario", "schedule_collection",
+		"operation", "capture_theater_schedule",
+		"outcome", "failed",
+		"expected", "complete schedule capture for target date",
+		"observed", "schedule capture stage failed",
+		"stage", stage,
+		"theater_id", theater.ID,
+		"theater_source_key", theater.SourceKey,
+		"theater_name", theater.Name,
+		"target_date", targetDate,
+		"error", err,
+	)
+}
+
 func (adapter *Adapter) selectCinemaTheater(region, theaterName string) error {
+	if adapter.selectedRegion == region && adapter.selectedTheater == theaterName {
+		adapter.logReusedCinemaTheater(theaterName)
+		return nil
+	}
 	if err := adapter.navigate(bookingCinemaURL); err != nil {
 		return fmt.Errorf("open CGV cinema booking: %w", err)
 	}
-	clicked, err := adapter.clickButtonPrefix(region + "(")
-	if err != nil {
+	if err := adapter.selectCinemaRegion(region); err != nil {
 		return err
-	}
-	if !clicked {
-		opened, openErr := adapter.clickButtonExact("자주가는 CGV 목록 수정")
-		if openErr != nil {
-			return openErr
-		}
-		if opened {
-			if err := adapter.wait(200 * time.Millisecond); err != nil {
-				return err
-			}
-			clicked, err = adapter.clickButtonPrefix(region + "(")
-			if err != nil {
-				return err
-			}
-		}
-	}
-	if !clicked {
-		return fmt.Errorf("%w: region button %q not found", ErrUIContractChanged, region)
 	}
 	if err := adapter.wait(150 * time.Millisecond); err != nil {
 		return err
 	}
-	clicked, err = adapter.clickButtonExact(theaterName)
+	clicked, err := adapter.clickButtonExact(theaterName)
 	if err != nil {
 		return err
 	}
@@ -147,6 +299,47 @@ func (adapter *Adapter) selectCinemaTheater(region, theaterName string) error {
 	adapter.selectedTheater = theaterName
 	adapter.selectedRegion = region
 	return nil
+}
+
+func (adapter *Adapter) logReusedCinemaTheater(theaterName string) {
+	if adapter.logger == nil {
+		return
+	}
+	adapter.logger.InfoContext(adapter.ctx, "CGV schedule theater selection reused",
+		"event", "cgv.schedule.theater.reused",
+		"scenario", "schedule_collection",
+		"operation", "select_theater",
+		"outcome", "succeeded",
+		"theater_name", theaterName,
+	)
+}
+
+func (adapter *Adapter) selectCinemaRegion(region string) error {
+	clicked, err := adapter.clickButtonPrefix(region + "(")
+	if err != nil {
+		return err
+	}
+	if !clicked {
+		clicked, err = adapter.openFavoriteCinemaEditorAndSelectRegion(region)
+		if err != nil {
+			return err
+		}
+	}
+	if !clicked {
+		return fmt.Errorf("%w: region button %q not found", ErrUIContractChanged, region)
+	}
+	return nil
+}
+
+func (adapter *Adapter) openFavoriteCinemaEditorAndSelectRegion(region string) (bool, error) {
+	opened, err := adapter.clickButtonExact("자주가는 CGV 목록 수정")
+	if err != nil || !opened {
+		return false, err
+	}
+	if err := adapter.wait(200 * time.Millisecond); err != nil {
+		return false, err
+	}
+	return adapter.clickButtonPrefix(region + "(")
 }
 
 func (adapter *Adapter) selectDate(isoDate string) error {
@@ -172,7 +365,10 @@ func (adapter *Adapter) selectDate(isoDate string) error {
 			return err
 		}
 		if clicked {
-			return adapter.wait(500 * time.Millisecond)
+			if err := adapter.waitForScheduleResponseReady(isoDate, 2*time.Second); err != nil {
+				return fmt.Errorf("wait for CGV schedule response: %w", err)
+			}
+			return nil
 		}
 	}
 	return fmt.Errorf("%w: target date %s", ErrTargetDateUnavailable, isoDate)

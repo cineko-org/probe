@@ -7,11 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/cineko-org/probe/v2/internal/telemetry"
 )
 
 type soxyClient struct {
@@ -55,14 +58,15 @@ func (err *soxyAPIError) Error() string {
 	return fmt.Sprintf("Soxy returned HTTP %d", err.Status)
 }
 
-func newSoxyClient(rawURL, token string, httpClient *http.Client) (*soxyClient, error) {
-	return newSoxyClientWithResolver(rawURL, token, httpClient, net.DefaultResolver.LookupIPAddr)
+func newSoxyClient(rawURL, token string, httpClient *http.Client, loggers ...*slog.Logger) (*soxyClient, error) {
+	return newSoxyClientWithResolver(rawURL, token, httpClient, net.DefaultResolver.LookupIPAddr, loggers...)
 }
 
 func newSoxyClientWithResolver(
 	rawURL, token string,
 	httpClient *http.Client,
 	lookup lookupIPAddr,
+	loggers ...*slog.Logger,
 ) (*soxyClient, error) {
 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil {
@@ -75,6 +79,9 @@ func newSoxyClientWithResolver(
 	if httpClient == nil {
 		defaultTransport := http.DefaultTransport.(*http.Transport) //nolint:errcheck,forcetypeassert // standard library invariant.
 		httpClient = defaultSoxyHTTPClient(privateHTTPOrigin, lookup, defaultTransport)
+	}
+	if len(loggers) > 0 && loggers[0] != nil {
+		httpClient = telemetry.HTTPClient(loggers[0], httpClient)
 	}
 	client := *httpClient
 	client.CheckRedirect = func(*http.Request, []*http.Request) error {

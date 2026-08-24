@@ -131,7 +131,7 @@ func parseSeatMapLayout(body []byte, auditoriumID string) (*seatmappb.Layout, er
 	return layout, nil
 }
 
-// canonicalizeSeatMapLayout matches Central's static-layout normalization
+// canonicalizeSeatMapLayout performs stable static-layout normalization
 // before either side computes the deterministic protobuf hash.
 func canonicalizeSeatMapLayout(layout *seatmappb.Layout) {
 	for _, seat := range layout.GetSeats() {
@@ -215,7 +215,6 @@ func appendSeatMapSeats(
 	board seatCoordinateBoard,
 	saleForms map[string]string,
 ) error {
-	start := len(layout.GetSeats())
 	for _, source := range item.Seats {
 		label, row, number, err := normalizedSeatLabel(source)
 		if err != nil {
@@ -258,9 +257,6 @@ func appendSeatMapSeats(
 		seat.SetSourceSeatKindCode(source.KindCode)
 		seat.SetSourceSeatKindName(source.KindName)
 		layout.SetSeats(append(layout.GetSeats(), seat))
-	}
-	if item.Board.Count > 0 && item.Board.Count != len(layout.GetSeats())-start {
-		return fmt.Errorf("CGV board count %d differs from parsed seat count", item.Board.Count)
 	}
 	return nil
 }
