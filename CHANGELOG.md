@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.8.2](https://github.com/cineko-org/probe/compare/v2.8.1...v2.8.2) (2026-08-31)
+
+
+### Bug Fixes
+
+* keep HTTP capture browser-independent ([#40](https://github.com/cineko-org/probe/issues/40)) ([56f003c](https://github.com/cineko-org/probe/commit/56f003cc8f908abbd51a9dc15cd60f7f60affd7e))
+
 ## [2.8.1](https://github.com/cineko-org/probe/compare/v2.8.0...v2.8.1) (2026-08-31)
 
 
