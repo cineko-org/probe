@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.8.1](https://github.com/cineko-org/probe/compare/v2.8.0...v2.8.1) (2026-08-31)
+
+
+### Bug Fixes
+
+* bound CGV schedule polling and diagnostics ([#37](https://github.com/cineko-org/probe/issues/37)) ([43de1b9](https://github.com/cineko-org/probe/commit/43de1b9040c594a084fff0378191f38fdeb5532a))
+
 ## [2.8.0](https://github.com/cineko-org/probe/compare/v2.7.5...v2.8.0) (2026-08-24)
 
 
