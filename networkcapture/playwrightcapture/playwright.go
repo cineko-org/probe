@@ -1,4 +1,4 @@
-package networkcapture
+package playwrightcapture
 
 import (
 	"errors"
@@ -6,12 +6,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cineko-org/probe/v2/networkcapture"
 	"github.com/mxschmitt/playwright-go"
 )
 
 // ShouldCapturePlaywrightRequest avoids materializing successful browser
 // bodies outside debug mode while retaining failures and 4xx/5xx responses.
-func ShouldCapturePlaywrightRequest(store *Store, request playwright.Request, failed bool) bool {
+func ShouldCapturePlaywrightRequest(store *networkcapture.Store, request playwright.Request, failed bool) bool {
 	if store == nil || request == nil {
 		return false
 	}
@@ -36,18 +37,18 @@ func ShouldCapturePlaywrightRequest(store *Store, request playwright.Request, fa
 // size remains available in Response.Bytes.
 //
 //nolint:gocyclo,cyclop // A single immutable snapshot must preserve every optional Playwright request and response field.
-func PlaywrightRecord(request playwright.Request, failed bool) Record {
+func PlaywrightRecord(request playwright.Request, failed bool) networkcapture.Record {
 	now := time.Now()
 	if request == nil {
-		return Record{Exchange: Exchange{
+		return networkcapture.Record{Exchange: networkcapture.Exchange{
 			Transport: "chromium", StartedAt: now, CompletedAt: now,
-			Outcome: "failed", Error: "browser request is nil", Request: Request{},
+			Outcome: "failed", Error: "browser request is nil", Request: networkcapture.Request{},
 		}}
 	}
 	timing := request.Timing()
 	startedAt := now
 	completedAt := now
-	var capturedTiming *Timing
+	var capturedTiming *networkcapture.Timing
 	if timing != nil {
 		if timing.StartTime > 0 {
 			startedAt = time.UnixMilli(int64(timing.StartTime))
@@ -55,7 +56,7 @@ func PlaywrightRecord(request playwright.Request, failed bool) Record {
 		if timing.ResponseEnd >= 0 {
 			completedAt = startedAt.Add(time.Duration(timing.ResponseEnd * float64(time.Millisecond)))
 		}
-		capturedTiming = &Timing{
+		capturedTiming = &networkcapture.Timing{
 			StartMillis: timing.StartTime, DomainLookupStart: timing.DomainLookupStart,
 			DomainLookupEnd: timing.DomainLookupEnd, ConnectStart: timing.ConnectStart,
 			SecureConnectionStart: timing.SecureConnectionStart, ConnectEnd: timing.ConnectEnd,
@@ -65,7 +66,7 @@ func PlaywrightRecord(request playwright.Request, failed bool) Record {
 	}
 	requestHeaders, _ := request.HeadersArray()
 	requestBody, requestBodyErr := request.PostDataBuffer()
-	requestCapture := Request{
+	requestCapture := networkcapture.Request{
 		Method: request.Method(), URL: request.URL(), Headers: PlaywrightHeaders(requestHeaders),
 		ResourceType: request.ResourceType(), Navigation: request.IsNavigationRequest(), Timing: capturedTiming,
 	}
@@ -78,8 +79,8 @@ func PlaywrightRecord(request playwright.Request, failed bool) Record {
 	if sizes, err := request.Sizes(); err == nil && sizes != nil {
 		requestCapture.Bytes = int64(sizes.RequestHeadersSize + sizes.RequestBodySize)
 	}
-	record := Record{
-		Exchange: Exchange{
+	record := networkcapture.Record{
+		Exchange: networkcapture.Exchange{
 			Transport: "chromium", StartedAt: startedAt, CompletedAt: completedAt,
 			Request: requestCapture,
 		},
@@ -96,7 +97,7 @@ func PlaywrightRecord(request playwright.Request, failed bool) Record {
 		responseBody, bodyErr := response.Body()
 		protocol, protocolErr := response.HttpVersion()
 		server, serverErr := response.ServerAddr()
-		capturedResponse := &Response{
+		capturedResponse := &networkcapture.Response{
 			Status: response.Status(), StatusText: response.StatusText(), Protocol: protocol,
 			Headers: PlaywrightHeaders(responseHeaders), FromServiceWorker: response.FromServiceWorker(),
 		}
@@ -133,10 +134,10 @@ func PlaywrightRecord(request playwright.Request, failed bool) Record {
 	return record
 }
 
-func PlaywrightHeaders(headers []playwright.NameValue) []Header {
-	result := make([]Header, 0, len(headers))
+func PlaywrightHeaders(headers []playwright.NameValue) []networkcapture.Header {
+	result := make([]networkcapture.Header, 0, len(headers))
 	for _, header := range headers {
-		result = append(result, Header{Name: header.Name, Value: header.Value})
+		result = append(result, networkcapture.Header{Name: header.Name, Value: header.Value})
 	}
 	return result
 }

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/cineko-org/probe/v2/internal/telemetry"
-	"github.com/cineko-org/probe/v2/networkcapture"
+	"github.com/cineko-org/probe/v2/networkcapture/playwrightcapture"
 	"github.com/mxschmitt/playwright-go"
 )
 
@@ -43,14 +43,14 @@ func (adapter *Adapter) captureNetworkExchange(request playwright.Request, faile
 	if adapter == nil || adapter.networkCapture == nil || request == nil {
 		return
 	}
-	if !networkcapture.ShouldCapturePlaywrightRequest(adapter.networkCapture, request, failed) {
+	if !playwrightcapture.ShouldCapturePlaywrightRequest(adapter.networkCapture, request, failed) {
 		return
 	}
 	if !adapter.beginNetworkCapture() {
 		return
 	}
 	defer adapter.networkCaptureWG.Done()
-	record := networkcapture.PlaywrightRecord(request, failed)
+	record := playwrightcapture.PlaywrightRecord(request, failed)
 	record.Service = "probe"
 	record.Scenario = "cgv_browser"
 	record.CorrelationID = adapter.browserRequestID(request)
@@ -92,7 +92,7 @@ func (adapter *Adapter) observeRateLimitResponse(response playwright.Response) {
 		return
 	}
 	headers, _ := response.HeadersArray()
-	decision := adapter.rateLimit.Observe429(key, networkcapture.PlaywrightHeaders(headers))
+	decision := adapter.rateLimit.Observe429(key, playwrightcapture.PlaywrightHeaders(headers))
 	if adapter.logger != nil {
 		adapter.logger.ErrorContext(adapter.ctx, "Provider rate limit circuit opened",
 			"event", "browser.network.rate_limit.opened", "scenario", "schedule_collection",
