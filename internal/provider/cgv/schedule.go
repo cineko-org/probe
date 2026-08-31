@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -79,6 +80,43 @@ func (adapter *Adapter) CaptureSchedulesForWeekdays(
 	return adapter.captureSchedules(ctx, theater, nil, weekdays)
 }
 
+// CaptureScheduleWeekdayShard refreshes one provider date from the matching
+// set. It keeps new-schedule detection bounded when many weeks share the same
+// target weekdays.
+func (adapter *Adapter) CaptureScheduleWeekdayShard(
+	ctx context.Context,
+	theater ScheduleTheater,
+	weekdays []time.Weekday,
+	shard int,
+) ([]ScheduleCapture, error) {
+	adapter.mu.Lock()
+	defer adapter.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := adapter.providerRateLimitError(bookingCinemaURL); err != nil {
+		return nil, err
+	}
+	if err := adapter.selectCinemaTheater(theater.Region, theater.Name); err != nil {
+		return nil, err
+	}
+	dates, err := adapter.availableScheduleDates()
+	if err != nil {
+		return nil, err
+	}
+	dates, err = filterScheduleDatesByWeekdays(dates, weekdays)
+	if err != nil {
+		return nil, err
+	}
+	if len(dates) == 0 {
+		return []ScheduleCapture{}, nil
+	}
+	if shard < 0 {
+		shard = 0
+	}
+	return adapter.captureSelectedSchedules(ctx, theater, []string{dates[shard%len(dates)]})
+}
+
 func (adapter *Adapter) captureSchedules(
 	ctx context.Context,
 	theater ScheduleTheater,
@@ -86,6 +124,9 @@ func (adapter *Adapter) captureSchedules(
 	weekdays []time.Weekday,
 ) ([]ScheduleCapture, error) {
 	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := adapter.providerRateLimitError(bookingCinemaURL); err != nil {
 		return nil, err
 	}
 	if err := adapter.selectCinemaTheater(theater.Region, theater.Name); err != nil {
@@ -105,8 +146,16 @@ func (adapter *Adapter) captureSchedules(
 			}
 		}
 	}
+	return adapter.captureSelectedSchedules(ctx, theater, scanDates)
+}
+
+func (adapter *Adapter) captureSelectedSchedules(
+	ctx context.Context,
+	theater ScheduleTheater,
+	scanDates []string,
+) ([]ScheduleCapture, error) {
 	if adapter.logger != nil {
-		adapter.logger.InfoContext(ctx, "CGV schedule capture started",
+		adapter.logger.DebugContext(ctx, "CGV schedule capture started",
 			"event", "cgv.schedule.capture.started",
 			"scenario", "schedule_collection",
 			"operation", "capture_theater_schedule",
@@ -128,14 +177,20 @@ func (adapter *Adapter) captureSchedules(
 			continue
 		}
 		capture.TargetDate = canonicalDate
-		if err := adapter.selectDate(canonicalDate); err != nil {
+		if err := adapter.requestScheduleDateFromPage(canonicalDate, theater.SourceKey); err != nil {
+			if errors.Is(err, ErrProviderThrottled) {
+				return result, err
+			}
 			capture.Error = err.Error()
-			adapter.logScheduleCaptureFailure(ctx, theater, canonicalDate, "select_date", err)
+			adapter.logScheduleCaptureFailure(ctx, theater, canonicalDate, "request_date", err)
 			result = append(result, capture)
 			continue
 		}
 		entries, err := adapter.extractSchedules(canonicalDate, theater)
 		if err != nil {
+			if errors.Is(err, ErrProviderThrottled) {
+				return result, err
+			}
 			capture.Error = err.Error()
 			adapter.logScheduleCaptureFailure(ctx, theater, canonicalDate, "extract_schedules", err)
 			result = append(result, capture)
@@ -147,7 +202,7 @@ func (adapter *Adapter) captureSchedules(
 			capture.Showtimes = append(capture.Showtimes, entry.Showtime)
 		}
 		if adapter.logger != nil {
-			adapter.logger.InfoContext(ctx, "CGV schedule capture completed",
+			adapter.logger.DebugContext(ctx, "CGV schedule capture completed",
 				"event", "cgv.schedule.capture.completed",
 				"scenario", "schedule_collection",
 				"operation", "capture_theater_schedule",
@@ -162,6 +217,65 @@ func (adapter *Adapter) captureSchedules(
 		result = append(result, capture)
 	}
 	return result, nil
+}
+
+// requestScheduleDateFromPage asks only for the schedule payload Cineko
+// consumes. It runs inside the already-open CGV page, so cookies, origin,
+// browser identity, response capture, and the local rate-limit gate remain on
+// the same browser boundary without replaying the page's unrelated grade and
+// schedule-existence requests for every polling round.
+func (adapter *Adapter) requestScheduleDateFromPage(isoDate, siteNo string) error {
+	requestPath, err := scheduleRequestPath(isoDate, siteNo)
+	if err != nil {
+		return err
+	}
+	if err := adapter.providerRateLimitError("https://cgv.co.kr" + requestPath); err != nil {
+		return err
+	}
+	adapter.resetProviderResponses()
+	expression := fmt.Sprintf(`(async () => {
+		const path = %s;
+		if (window.location.origin !== 'https://cgv.co.kr') {
+			throw new Error('CGV booking page origin changed');
+		}
+		const response = await window.fetch(path, {
+			method: 'GET',
+			headers: {accept: 'application/json'},
+			credentials: 'same-origin',
+			cache: 'no-store',
+			redirect: 'error',
+		});
+		await response.arrayBuffer();
+		return response.status;
+	})()`, jsString(requestPath))
+	var status int
+	if err := adapter.evaluate(expression, &status); err != nil {
+		return fmt.Errorf("request CGV schedule from booking page: %w", err)
+	}
+	if status < 200 || status > 299 {
+		return adapter.handleProviderFailure(providerHTTPError(status))
+	}
+	if err := adapter.waitForScheduleResponseReady(isoDate, 2*time.Second); err != nil {
+		return fmt.Errorf("wait for CGV schedule response: %w", err)
+	}
+	return nil
+}
+
+func scheduleRequestPath(isoDate, siteNo string) (string, error) {
+	canonicalDate, err := canonicalProviderDate(isoDate)
+	if err != nil {
+		return "", err
+	}
+	siteNo = strings.TrimSpace(siteNo)
+	if !providerSiteIdentifier(siteNo) {
+		return "", fmt.Errorf("%w: invalid CGV theater siteNo %q", ErrIdentityMismatch, siteNo)
+	}
+	query := url.Values{}
+	query.Set("coCd", "A420")
+	query.Set("siteNo", siteNo)
+	query.Set("scnYmd", strings.ReplaceAll(canonicalDate, "-", ""))
+	query.Set("rtctlScopCd", "08")
+	return scheduleResponsePath + "?" + query.Encode(), nil
 }
 
 func filterScheduleDatesByWeekdays(dates []string, weekdays []time.Weekday) ([]string, error) {
@@ -305,7 +419,7 @@ func (adapter *Adapter) logReusedCinemaTheater(theaterName string) {
 	if adapter.logger == nil {
 		return
 	}
-	adapter.logger.InfoContext(adapter.ctx, "CGV schedule theater selection reused",
+	adapter.logger.DebugContext(adapter.ctx, "CGV schedule theater selection reused",
 		"event", "cgv.schedule.theater.reused",
 		"scenario", "schedule_collection",
 		"operation", "select_theater",

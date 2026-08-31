@@ -15,6 +15,7 @@ import (
 	seatmappb "github.com/cineko-org/contracts/v3/gen/go/cineko/seatmap"
 	"github.com/cineko-org/probe/v2/internal/provider/cgv"
 	cgvbrowser "github.com/cineko-org/probe/v2/internal/provider/cgv/browser"
+	"github.com/cineko-org/probe/v2/networkcapture"
 )
 
 // LocalScanner is the in-process scanner owned by Client. It performs anonymous
@@ -31,16 +32,22 @@ type LocalScanner struct {
 	closed          bool
 }
 
+// ErrProviderThrottled lets the embedding Client suppress duplicate operation
+// failures after the browser-level rate-limit event has already recorded the
+// full response and retry deadline.
+var ErrProviderThrottled = cgv.ErrProviderThrottled
+
 type LocalScannerConfig struct {
-	DataDir string
-	Logger  *slog.Logger
+	DataDir        string
+	Logger         *slog.Logger
+	NetworkCapture *networkcapture.Store
 }
 
 func NewLocalScanner(config LocalScannerConfig) (*LocalScanner, error) {
 	if strings.TrimSpace(config.DataDir) == "" {
 		return nil, errors.New("local scanner data directory is required")
 	}
-	factory, err := cgvbrowser.NewFromEnvironmentWithLogger(filepath.Clean(config.DataDir), config.Logger)
+	factory, err := cgvbrowser.NewFromEnvironmentWithLogger(filepath.Clean(config.DataDir), config.Logger, config.NetworkCapture)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +109,7 @@ func (scanner *LocalScanner) CaptureSchedules(
 	ctx context.Context,
 	theater *catalogpb.Theater,
 ) ([]*observationpb.Capture, error) {
-	return scanner.captureSchedules(ctx, theater, nil)
+	return scanner.captureSchedules(ctx, theater, nil, nil)
 }
 
 func (scanner *LocalScanner) CaptureScheduleWeekdays(
@@ -110,13 +117,23 @@ func (scanner *LocalScanner) CaptureScheduleWeekdays(
 	theater *catalogpb.Theater,
 	weekdays []int32,
 ) ([]*observationpb.Capture, error) {
-	return scanner.captureSchedules(ctx, theater, weekdays)
+	return scanner.captureSchedules(ctx, theater, weekdays, nil)
+}
+
+func (scanner *LocalScanner) CaptureScheduleWeekdayShard(
+	ctx context.Context,
+	theater *catalogpb.Theater,
+	weekdays []int32,
+	shard int,
+) ([]*observationpb.Capture, error) {
+	return scanner.captureSchedules(ctx, theater, weekdays, &shard)
 }
 
 func (scanner *LocalScanner) captureSchedules(
 	ctx context.Context,
 	theater *catalogpb.Theater,
 	weekdays []int32,
+	shard *int,
 ) ([]*observationpb.Capture, error) {
 	if scanner == nil || scanner.executor == nil {
 		return nil, errors.New("local scanner is closed")
@@ -145,9 +162,12 @@ func (scanner *LocalScanner) captureSchedules(
 		captures []*observationpb.Capture
 		err      error
 	)
-	if len(weekdays) > 0 {
+	switch {
+	case len(weekdays) > 0 && shard != nil:
+		captures, err = scanner.scheduleSession.CaptureWeekdayShard(ctx, task, weekdays, *shard)
+	case len(weekdays) > 0:
 		captures, err = scanner.scheduleSession.CaptureWeekdays(ctx, task, weekdays)
-	} else {
+	default:
 		captures, err = scanner.scheduleSession.Capture(ctx, task)
 	}
 	if scanner.logger != nil {
@@ -155,16 +175,17 @@ func (scanner *LocalScanner) captureSchedules(
 		if err != nil {
 			outcome = "failed"
 		}
-		scanner.logger.InfoContext(ctx, "Probe schedule browser round completed",
+		scanner.logger.DebugContext(ctx, "Probe schedule browser round completed",
 			"event", "scanner.schedule.session.used",
 			"scenario", "schedule_collection",
 			"operation", "capture_theater_schedule",
 			"outcome", outcome,
 			"browser_reused", reused,
+			"date_sharded", shard != nil,
 			"duration_ms", time.Since(startedAt).Milliseconds(),
 		)
 	}
-	if err != nil && !errors.Is(err, context.Canceled) {
+	if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, cgv.ErrProviderThrottled) {
 		scanner.scheduleSession.Close()
 		scanner.scheduleSession = nil
 	}

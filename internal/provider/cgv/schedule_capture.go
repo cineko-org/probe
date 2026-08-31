@@ -28,17 +28,16 @@ func (adapter *Adapter) captureProviderResponse(response playwright.Response) {
 		return
 	}
 	captured := capturedProviderResponse{path: path, requestURL: response.URL(), status: response.Status()}
+	captured.body, captured.err = response.Body()
+	if captured.err != nil {
+		captured.err = fmt.Errorf("%w: read provider response body: %w", ErrProviderTransport, captured.err)
+	}
 	if captured.status < 200 || captured.status > 299 {
-		captured.err = providerHTTPError(captured.status)
-	} else {
-		captured.body, captured.err = response.Body()
-		if captured.err != nil {
-			captured.err = fmt.Errorf("%w: read provider response body: %w", ErrProviderTransport, captured.err)
-		}
-		if captured.err == nil && len(captured.body) > maxScheduleResponseBytes {
-			captured.err = fmt.Errorf("CGV provider response exceeds %d bytes", maxScheduleResponseBytes)
-			captured.body = nil
-		}
+		captured.err = errors.Join(providerHTTPError(captured.status), captured.err)
+	}
+	if captured.err == nil && len(captured.body) > maxScheduleResponseBytes {
+		captured.err = fmt.Errorf("CGV provider response exceeds %d bytes", maxScheduleResponseBytes)
+		captured.body = nil
 	}
 	adapter.scheduleResponseMu.Lock()
 	if len(adapter.providerResponses) >= maxCapturedProviderResponses {
@@ -53,7 +52,7 @@ func (adapter *Adapter) captureProviderResponse(response playwright.Response) {
 	adapter.providerResponses = append(adapter.providerResponses, captured)
 	adapter.scheduleResponseMu.Unlock()
 	if adapter.logger != nil {
-		adapter.logger.InfoContext(adapter.ctx, "CGV provider response captured",
+		adapter.logger.DebugContext(adapter.ctx, "CGV provider response captured",
 			"event", "cgv.schedule.provider_response.captured",
 			"scenario", "schedule_collection",
 			"operation", "capture_provider_response",

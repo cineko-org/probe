@@ -12,6 +12,7 @@ import (
 
 	"github.com/cineko-org/probe/v2/internal/egress"
 	"github.com/cineko-org/probe/v2/internal/provider/cgv"
+	"github.com/cineko-org/probe/v2/networkcapture"
 )
 
 // ErrClosed indicates that a factory cannot accept more browser work.
@@ -80,18 +81,24 @@ func NewFromEnvironment(dataDir string) (*Factory, error) {
 
 // NewFromEnvironmentWithLogger creates a factory and instruments its Soxy
 // control-plane HTTP client when logger is provided.
-func NewFromEnvironmentWithLogger(dataDir string, logger *slog.Logger) (*Factory, error) {
+func NewFromEnvironmentWithLogger(dataDir string, logger *slog.Logger, captures ...*networkcapture.Store) (*Factory, error) {
 	egressConfig, err := egress.ConfigFromEnvironment()
 	if err != nil {
 		return nil, err
 	}
 	egressConfig.Logger = logger
+	if len(captures) > 0 {
+		egressConfig.NetworkCapture = captures[0]
+	}
 	egressManager, err := egress.New(egressConfig)
 	if err != nil {
 		return nil, err
 	}
 	configuration := cgv.DefaultBrowserConfig()
 	configuration.Logger = logger
+	if len(captures) > 0 {
+		configuration.NetworkCapture = captures[0]
+	}
 	configuration.ProfileDir = filepath.Join(dataDir, "chrome-profile")
 	configuration.ArtifactsDir = filepath.Join(dataDir, "artifacts")
 	if chromePath := strings.TrimSpace(os.Getenv("CINEKO_CHROME_PATH")); chromePath != "" {

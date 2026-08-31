@@ -123,6 +123,27 @@ func TestCGVExecutorScheduleSessionReusesOneBrowser(t *testing.T) {
 	}
 }
 
+func TestCGVExecutorScheduleSessionUsesOneDateShard(t *testing.T) {
+	t.Parallel()
+	browser := &fakeScheduleBrowser{captures: []cgv.ScheduleCapture{{TargetDate: "2026-08-29", Complete: true}}}
+	executor := &CGVExecutor{
+		open:  func(context.Context, cgvbrowser.Task) (scheduleBrowser, error) { return browser, nil },
+		clock: time.Now,
+	}
+	session, err := executor.OpenScheduleSession(context.Background(), testAssignmentTask())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	captures, err := session.CaptureWeekdayShard(context.Background(), testAssignmentTask(), []int32{5, 6}, 7)
+	if err != nil || len(captures) != 1 {
+		t.Fatalf("captures = %+v, error = %v", captures, err)
+	}
+	if browser.shard != 7 || len(browser.weekdays) != 2 || browser.weekdays[0] != time.Friday || browser.weekdays[1] != time.Saturday {
+		t.Fatalf("shard/weekdays = %d/%v", browser.shard, browser.weekdays)
+	}
+}
+
 func TestValidateCanonicalShowtimeRejectsRelationalIdentityMismatch(t *testing.T) {
 	t.Parallel()
 	showtime := canonicalTestShowtime(cgv.ScheduleShowtime{})
@@ -365,8 +386,20 @@ type fakeScheduleBrowser struct {
 	captures []cgv.ScheduleCapture
 	catalog  cgv.CatalogCapture
 	weekdays []time.Weekday
+	shard    int
 	err      error
 	closed   bool
+}
+
+func (browser *fakeScheduleBrowser) CaptureScheduleWeekdayShard(
+	_ context.Context,
+	_ cgv.ScheduleTheater,
+	weekdays []time.Weekday,
+	shard int,
+) ([]cgv.ScheduleCapture, error) {
+	browser.weekdays = append([]time.Weekday(nil), weekdays...)
+	browser.shard = shard
+	return browser.captures, browser.err
 }
 
 func (browser *fakeScheduleBrowser) CaptureSchedules(
