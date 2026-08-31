@@ -1,4 +1,6 @@
 // Package networkcapture persists complete local HTTP exchanges for diagnosis.
+// Browser-specific adapters live in subpackages so HTTP-only consumers do not
+// inherit Playwright or browser-runtime dependencies.
 //
 // The manifest is intentionally separate from body blobs: repeated payloads are
 // content-addressed once, while every request still has its own chronological
