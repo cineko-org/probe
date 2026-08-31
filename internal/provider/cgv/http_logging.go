@@ -220,7 +220,7 @@ func (adapter *Adapter) writeBrowserRequestLog(attrs []any, rawErr error) {
 		if outcome == "blocked" {
 			attrs = append(attrs, "block_reason", "intentional_resource_filter")
 		}
-		adapter.logger.Info("Browser network request completed", attrs...)
+		adapter.logger.Debug("Browser network request completed", attrs...)
 		return
 	}
 	if rawErr != nil {
@@ -229,7 +229,7 @@ func (adapter *Adapter) writeBrowserRequestLog(attrs []any, rawErr error) {
 		return
 	}
 	attrs = append(attrs, "outcome", "succeeded")
-	adapter.logger.Info("Browser network request completed", attrs...)
+	adapter.logger.Debug("Browser network request completed", attrs...)
 }
 
 func expectedBrowserRequestOutcome(err error) string {
