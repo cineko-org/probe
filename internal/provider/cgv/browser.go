@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/cineko-org/probe/v2/internal/telemetry"
+	"github.com/cineko-org/probe/v2/networkcapture"
 	"github.com/mxschmitt/playwright-go"
 )
 
@@ -59,6 +60,7 @@ type BrowserConfig struct {
 	Proxy                  *BrowserProxy
 	Capacity               int
 	Logger                 *slog.Logger
+	NetworkCapture         *networkcapture.Store
 	ProviderFailureHandler ProviderFailureHandler
 }
 
@@ -125,6 +127,11 @@ type Adapter struct {
 	userAgentMetadata      userAgentBootstrapIdentity
 	webGLIdentity          webGLIdentity
 	logger                 *slog.Logger
+	networkCapture         *networkcapture.Store
+	networkCaptureMu       sync.Mutex
+	networkCaptureWG       sync.WaitGroup
+	networkCaptureClosing  bool
+	rateLimit              *networkcapture.RateLimitGate
 }
 
 func (adapter *Adapter) handleProviderFailure(err error) error {
@@ -353,6 +360,15 @@ func newAdapter(
 		blockResources:         config.BlockResources,
 		providerFailureHandler: config.ProviderFailureHandler,
 		logger:                 config.Logger,
+		networkCapture:         config.NetworkCapture,
+		rateLimit:              networkcapture.NewRateLimitGate(),
+	}
+	if adapter.networkCapture == nil {
+		adapter.networkCapture, err = networkcapture.NewStore(filepath.Join(config.ArtifactsDir, "network"), config.Logger)
+		if err != nil {
+			adapter.Close()
+			return nil, fmt.Errorf("initialize browser network capture: %w", err)
+		}
 	}
 	if persistedIdentity == nil {
 		if err := saveSessionIdentity(config, persistentBrowserIdentity{
@@ -475,6 +491,7 @@ func (adapter *Adapter) installBrowserHooks(scripts []string) error {
 	}
 	adapter.page.OnResponse(adapter.captureProviderResponse)
 	adapter.page.OnResponse(adapter.captureCatalogPosterResponse)
+	adapter.browserContext.OnResponse(adapter.observeRateLimitResponse)
 	adapter.browserContext.OnRequestFinished(adapter.logProviderRequest)
 	adapter.browserContext.OnRequestFailed(adapter.logProviderRequestFailed)
 	adapter.browserContext.OnPage(func(page playwright.Page) {
@@ -623,6 +640,7 @@ var thirdPartyBlocklist = []string{
 	"adservice.google.",
 	"connect.facebook.net",
 	"facebook.com/tr",
+	"nsso.cjone.com/findcookieredirect.jsp",
 	"analytics",
 	"tracking",
 	"/pixel",
@@ -660,6 +678,19 @@ func (adapter *Adapter) routeRequest(route playwright.Route) {
 		_ = route.Abort("blockedbyclient")
 		return
 	}
+	if allowed, decision := adapter.rateLimit.Allow(rateLimitKey(request.URL())); !allowed {
+		adapter.blockedRequests.Add(1)
+		if adapter.logger != nil {
+			adapter.logger.WarnContext(adapter.ctx, "Browser request blocked by provider rate limit",
+				"event", "browser.network.request.rate_limited", "scenario", "schedule_collection",
+				"operation", "route_provider_request", "outcome", "blocked",
+				"request_url", request.URL(), "method", request.Method(),
+				"retry_at", decision.BlockedUntil, "retry_after_ms", decision.Delay.Milliseconds(),
+				"rate_limit_failures", decision.Failures)
+		}
+		_ = route.Abort("blockedbyclient")
+		return
+	}
 	adapter.continuedRequests.Add(1)
 	headers, err := request.AllHeaders()
 	if err != nil {
@@ -683,6 +714,7 @@ func (adapter *Adapter) routeRequest(route playwright.Route) {
 
 func (adapter *Adapter) Close() {
 	adapter.closeOnce.Do(func() {
+		adapter.stopNetworkCapture()
 		adapter.cancelContext()
 		if adapter.identitySession != nil {
 			_ = adapter.identitySession.Detach()

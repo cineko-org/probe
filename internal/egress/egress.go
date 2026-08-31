@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cineko-org/probe/v2/networkcapture"
 )
 
 const (
@@ -80,6 +82,7 @@ type Config struct {
 	RenewInterval    time.Duration
 	MaxRenewFailures int
 	Probe            func(context.Context, Proxy) error
+	NetworkCapture   *networkcapture.Store
 }
 
 // Manager resolves egress policy and owns active proxy leases.
@@ -154,6 +157,9 @@ func New(config Config) (*Manager, error) {
 			return nil, err
 		}
 		manager.client = client
+		if config.NetworkCapture != nil {
+			manager.client.httpClient = networkcapture.HTTPClient(config.NetworkCapture, "probe", config.Logger, manager.client.httpClient)
+		}
 	}
 	return manager, nil
 }

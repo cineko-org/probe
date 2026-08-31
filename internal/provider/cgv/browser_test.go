@@ -32,6 +32,7 @@ func TestShouldBlockResource(t *testing.T) {
 		{"https://cdn.example/app.js", "script", true},
 		{"https://cgv.co.kr/poster.webp", "image", true},
 		{"https://www.google-analytics.com/collect", "fetch", true},
+		{"https://nsso.cjone.com/findCookieRedirect.jsp?returnUrl=https://cgv.co.kr", "fetch", true},
 	} {
 		if got := shouldBlockResource(test.url, test.resourceType); got != test.blocked {
 			t.Fatalf("shouldBlockResource(%q, %q) = %t", test.url, test.resourceType, got)

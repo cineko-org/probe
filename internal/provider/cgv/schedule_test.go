@@ -3,6 +3,7 @@ package cgv
 import (
 	"context"
 	"errors"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -236,6 +237,29 @@ func TestScheduleDateNormalizesBeforeCapture(t *testing.T) {
 		if err != nil || canonical != "2026-08-12" {
 			t.Fatalf("canonicalProviderDate(%q) = %q, %v", input, canonical, err)
 		}
+	}
+}
+
+func TestScheduleRequestPathTargetsOnlyCGVScheduleAPI(t *testing.T) {
+	t.Parallel()
+	path, err := scheduleRequestPath("2026-08-28", "0013")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := url.Parse(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Path != scheduleResponsePath || parsed.IsAbs() {
+		t.Fatalf("schedule request path = %q", path)
+	}
+	query := parsed.Query()
+	if query.Get("coCd") != "A420" || query.Get("siteNo") != "0013" ||
+		query.Get("scnYmd") != "20260828" || query.Get("rtctlScopCd") != "08" {
+		t.Fatalf("schedule request query = %v", query)
+	}
+	if _, err := scheduleRequestPath("2026-08-28", ""); !errors.Is(err, ErrIdentityMismatch) {
+		t.Fatalf("invalid theater identity error = %v", err)
 	}
 }
 

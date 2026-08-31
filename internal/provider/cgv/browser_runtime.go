@@ -68,6 +68,9 @@ func startPlaywright() (*playwright.Playwright, error) {
 
 func resolveBrowserExecutable(pw *playwright.Playwright, configured string) (string, error) {
 	configured = strings.TrimSpace(configured)
+	if configured == "" {
+		configured = strings.TrimSpace(os.Getenv("CINEKO_CHROME_PATH"))
+	}
 	if configured != "" {
 		return validateBrowserExecutable(configured, "configured")
 	}

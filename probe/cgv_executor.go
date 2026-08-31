@@ -28,6 +28,10 @@ type weekdayScheduleBrowser interface {
 	CaptureSchedulesForWeekdays(context.Context, cgv.ScheduleTheater, []time.Weekday) ([]cgv.ScheduleCapture, error)
 }
 
+type weekdayShardScheduleBrowser interface {
+	CaptureScheduleWeekdayShard(context.Context, cgv.ScheduleTheater, []time.Weekday, int) ([]cgv.ScheduleCapture, error)
+}
+
 type catalogBrowser interface {
 	CaptureCatalog(context.Context, []string) (cgv.CatalogCapture, error)
 }
@@ -165,6 +169,61 @@ func (session *ScheduleSession) CaptureWeekdays(
 		return nil, err
 	}
 	return session.capture(ctx, task, weekdays)
+}
+
+func (session *ScheduleSession) CaptureWeekdayShard(
+	ctx context.Context,
+	task *observationpb.AssignmentTask,
+	weekdayValues []int32,
+	shard int,
+) ([]*observationpb.Capture, error) {
+	weekdays, err := scheduleWeekdays(weekdayValues)
+	if err != nil {
+		return nil, err
+	}
+	if session == nil || session.executor == nil {
+		return nil, errors.New("probe schedule session is closed")
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.browser == nil {
+		return nil, errors.New("probe schedule session is closed")
+	}
+	return session.executor.captureScheduleWeekdayShardInBrowser(ctx, task, weekdays, shard, session.browser)
+}
+
+func (executor *CGVExecutor) captureScheduleWeekdayShardInBrowser(
+	ctx context.Context,
+	task *observationpb.AssignmentTask,
+	weekdays []time.Weekday,
+	shard int,
+	browserSession scheduleBrowser,
+) ([]*observationpb.Capture, error) {
+	if err := validateScheduleTask(task); err != nil {
+		return nil, err
+	}
+	shardBrowser, supported := browserSession.(weekdayShardScheduleBrowser)
+	if !supported {
+		return executor.captureSchedulesInBrowser(ctx, task, weekdays, browserSession)
+	}
+	schedule := task.GetSchedule()
+	location, err := time.LoadLocation(schedule.GetTimeZone())
+	if err != nil {
+		return nil, fmt.Errorf("%w: load assignment time zone: %w", errLocalExecution, err)
+	}
+	values, err := shardBrowser.CaptureScheduleWeekdayShard(ctx, scheduleTheater(schedule.GetTheater()), weekdays, shard)
+	if err != nil {
+		return nil, fmt.Errorf("capture CGV schedule shard: %w", err)
+	}
+	result := make([]*observationpb.Capture, 0, len(values))
+	for _, value := range values {
+		capture, err := executor.convertCapture(value, location)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, capture)
+	}
+	return result, nil
 }
 
 func (session *ScheduleSession) capture(
