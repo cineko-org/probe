@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.8.3](https://github.com/cineko-org/probe/compare/v2.8.2...v2.8.3) (2026-08-31)
+
+
+### Bug Fixes
+
+* demote routine browser request logs ([#42](https://github.com/cineko-org/probe/issues/42)) ([c440fa8](https://github.com/cineko-org/probe/commit/c440fa8a3c58a8a21c6d067d8e52994ed0e83085))
+
 ## [2.8.2](https://github.com/cineko-org/probe/compare/v2.8.1...v2.8.2) (2026-08-31)
 
 
